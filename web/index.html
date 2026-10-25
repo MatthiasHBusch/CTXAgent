@@ -1,0 +1,453 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>ctxagent</title>
+  <link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+<div id="app" class="panel-open">
+
+  <!-- ---------------- sidebar ---------------- -->
+  <aside id="sidebar">
+    <div class="brand"><span class="dot"></span> ctxagent <small id="keystate"></small></div>
+    <button class="newchat" id="btn-new">＋ New chat</button>
+    <div id="chatlist"></div>
+    <div class="sidebar-foot" id="foot">—</div>
+  </aside>
+
+  <!-- ---------------- main ---------------- -->
+  <section id="main">
+    <div id="topbar">
+      <span class="title" id="chattitle">No chat selected</span>
+      <span class="spacer"></span>
+      <div class="meter" id="meter" title="frozen prefix / hot zone / free">
+        <div class="seg-frozen" style="width:0%"></div>
+        <div class="seg-hot" style="width:0%"></div>
+      </div>
+      <span class="pill" id="tokpill">0 / 0</span>
+      <span class="pill click" id="savedpill" title="Tokens removed by compaction">saved 0</span>
+      <button class="iconbtn" id="btn-compact" title="Compact now (force a deep pass)">⇲</button>
+      <button class="iconbtn on" id="btn-panel" title="Toggle context panel">◨</button>
+    </div>
+
+    <div id="backend-status" role="status"></div>
+    <div id="banner"></div>
+
+    <div id="messages">
+      <div class="wrap" id="msgwrap">
+        <div class="empty" id="empty">
+          <h2>A context-aware agent</h2>
+          <p>Create a chat, point it at a working directory, and pick your tools.</p>
+          <p>The panel on the right shows exactly what the compaction engine is doing to your context, turn by turn.</p>
+        </div>
+      </div>
+    </div>
+
+    <div id="composer">
+      <div class="wrap">
+        <div class="composer-box">
+          <textarea id="input" rows="1" placeholder="Ask anything…  (Enter to send, Shift+Enter for newline)"></textarea>
+          <div class="composer-row">
+            <span class="pill" id="modelpill">—</span>
+            <button class="pill click wd-btn" id="btn-wd" title="Choose the working directory for this chat">
+              <span class="ic">▢</span><span id="wdhint">set working directory</span>
+            </button>
+            <span class="spacer"></span>
+            <button class="send" id="btn-send" title="Send">↑</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ---------------- right panel ---------------- -->
+  <aside id="panel">
+    <div class="tabs">
+      <button class="tab active" data-tab="context">Context</button>
+      <button class="tab" data-tab="tools">Tools</button>
+      <button class="tab" data-tab="settings">Settings</button>
+      <button class="tab" data-tab="compaction">Engine</button>
+    </div>
+
+    <!-- CONTEXT -->
+    <div class="tabpane active" id="pane-context">
+      <div class="sect">
+        <h4>Window occupancy</h4>
+        <div class="bigbar" id="bigbar"></div>
+        <div class="legend">
+          <span><i style="background:var(--frozen)"></i>frozen (cache-eligible)</span>
+          <span><i style="background:var(--hot)"></i>mutable (actual)</span>
+          <span><i style="background:var(--bg-4)"></i>free</span>
+        </div>
+        <div class="kv"><span class="k">In context</span><span class="v" id="s-total">—</span></div>
+        <div class="kv"><span class="k">Uncompacted would be</span><span class="v" id="s-orig">—</span></div>
+        <div class="kv"><span class="k">Saved by compaction</span><span class="v good" id="s-saved">—</span></div>
+        <div class="kv"><span class="k">Pressure</span><span class="v" id="s-press">—</span></div>
+        <div class="kv"><span class="k">Frozen prefix</span><span class="v" id="s-frozen">—</span></div>
+        <div class="kv"><span class="k">Mutable tail</span><span class="v" id="s-hot">—</span></div>
+        <p class="usage-note" id="s-hot-note"></p>
+        <div class="kv"><span class="k">Tool schema overhead</span><span class="v" id="s-tools">—</span></div>
+        <div class="kv"><span class="k">Document tool catalog</span><span class="v" id="s-doc-tools">—</span></div>
+        <div class="kv"><span class="k">Rewrite cadence</span><span class="v" id="s-cadence">?</span></div>
+        <div class="kv"><span class="k">Deep target remaining</span><span class="v" id="s-tail">—</span></div>
+      </div>
+
+      <div class="sect" id="document-workspace">
+        <h4>Live documents <span id="doc-tokens"></span></h4>
+        <p class="usage-note">Full files or selected sections; refreshed from disk before requests. Close views to remove their live content. History remains separate.</p>
+        <div class="field"><label for="doc-path">File path</label><input id="doc-path" type="text" placeholder="Absolute path or relative to a working directory"></div>
+        <div class="field"><label for="doc-select">Sections (optional, one selector per line)</label><textarea id="doc-select" rows="2" placeholder="Blank = full text; otherwise name, dotted path, or L20-80"></textarea></div>
+        <div class="field"><label for="doc-budget">View token limit</label><input id="doc-budget" type="number" min="1" max="20000" value="8000"></div>
+        <button class="btn" id="btn-doc-open">Open / replace view</button>
+        <button class="btn" id="btn-doc-refresh">Refresh</button>
+        <button class="btn" id="btn-doc-enable">Enable agent document tools</button>
+        <p class="usage-note" id="doc-status" role="status"></p>
+        <div id="doc-list"></div>
+      </div>
+
+      <div class="sect" id="browser-workspace">
+        <details id="browser-details"><summary>Browser research <span id="browser-budget"></span></summary>
+          <p class="usage-note">Cached pages and screenshots are live context, not chat history. Close removes the live view and archives a summary using the summary model (billed). Notes stay outside history; sources are untrusted evidence.</p>
+          <div class="field"><label for="browser-url">Public page URL</label><input id="browser-url" type="text" placeholder="https://…" spellcheck="false" maxlength="8000" data-browser-tool="browser_open"></div>
+          <label class="switchrow"><input id="browser-js" type="checkbox" data-browser-tool="browser_open"><span class="lbl">Render JavaScript on open<small>Isolated browser; no login cookies.</small></span></label>
+          <div class="field"><label for="browser-view-budget">View token limit</label><input id="browser-view-budget" type="number" min="100" max="12000" value="4000" data-browser-tool="browser_open"></div>
+          <div class="browser-actions">
+            <button class="btn" id="btn-browser-open" data-browser-tool="browser_open">Open page</button>
+            <button class="btn" id="btn-browser-refresh">Refresh tabs</button>
+            <button class="btn" id="btn-browser-enable">Enable browser tools</button>
+          </div>
+          <p class="usage-note" id="browser-status" role="status" aria-live="polite"></p>
+          <p class="usage-note" id="browser-lock"></p>
+          <div id="browser-tabs"></div>
+          <details id="browser-archive"><summary>Archived research notes <span id="browser-note-count"></span></summary>
+            <div class="browser-actions">
+              <button class="btn" id="btn-browser-notes" data-browser-tool="browser_notes" data-browser-read="true">List notes</button>
+              <button class="btn" id="btn-browser-notes-prev" data-browser-tool="browser_notes" data-browser-read="true">Previous</button>
+              <button class="btn" id="btn-browser-notes-next" data-browser-tool="browser_notes" data-browser-read="true">Next</button>
+            </div>
+            <p class="usage-note" id="browser-notes-range"></p>
+            <div id="browser-notes-list"></div>
+            <div id="browser-note-view"></div>
+          </details>
+        </details>
+      </div>
+
+      <div class="sect" id="delegated-agents">
+        <details id="agent-details"><summary>Delegated agents</summary>
+          <p class="usage-note">Independent contexts and billed usage. Settings inherit; task history is passed explicitly. Parent Stop does not cancel workers.</p>
+          <button class="btn" id="btn-agents-refresh">Refresh agents</button>
+          <button class="btn" id="btn-agent-start">Delegate task</button>
+          <button class="btn" id="btn-agent-enable">Enable delegation + browsing</button>
+          <p class="usage-note" id="agent-status" role="status"></p><div id="agent-list"></div>
+        </details>
+      </div>
+      <div class="sect">
+        <h4>Provider usage</h4>
+        <div class="kv"><span class="k">Requests</span><span class="v" id="u-req">0</span></div>
+        <div class="kv"><span class="k">Prompt tokens</span><span class="v" id="u-pt">0</span></div>
+        <div class="kv"><span class="k">Completion tokens</span><span class="v" id="u-ct">0</span></div>
+        <div class="kv"><span class="k">Cache reads</span><span class="v good" id="u-cr">0</span></div>
+        <div class="kv"><span class="k">Cache hit rate (lifetime)</span><span class="v" id="u-chr">—</span></div>
+        <div class="kv"><span class="k">Last request service tier</span><span class="v" id="u-tier">?</span></div>
+        <div class="kv"><span class="k">Cache hit (last / last 10)</span><span class="v" id="u-recent">—</span></div>
+        <div class="kv"><span class="k">Cache writes (tokens)</span><span class="v" id="u-cw">—</span></div>
+        <div class="kv"><span class="k">This chat's reported cost</span><span class="v" id="u-cost">—</span></div>
+        <div class="kv"><span class="k">Agents (separate)</span><span class="v" id="u-agents-cost" title="Unique descendant chats, including their summaries/follow-ups. Not included in the parent reported total.">?</span></div>
+        <h4 style="margin-top:14px">Cost allocation estimates</h4>
+        <div class="kv"><span class="k">Input (uncached)</span><span class="v" id="u-input-cost">—</span></div>
+        <div class="kv"><span class="k">Cache read</span><span class="v" id="u-read-cost">—</span></div>
+        <div class="kv"><span class="k">Cache write</span><span class="v" id="u-write-cost">—</span></div>
+        <div class="kv"><span class="k">Output (excluding reasoning)</span><span class="v" id="u-output-cost">—</span></div>
+        <div class="kv"><span class="k">Reasoning</span><span class="v" id="u-reason-cost">—</span></div>
+        <div class="kv"><span class="k">Completion (split unavailable)</span><span class="v" id="u-unsplit-cost">—</span></div>
+        <div class="kv"><span class="k">Historical unallocated</span><span class="v" id="u-legacy-cost">—</span></div>
+        <div class="kv"><span class="k">Summary model (in total)</span><span class="v" id="u-summary-cost">—</span></div>
+        <p id="u-allocation-note" class="usage-note"></p>
+        <details><summary>Latest cache diagnostics</summary><pre id="u-cache-diagnostic" class="usage-diagnostic"></pre></details>
+      </div>
+
+      <div class="sect">
+        <h4>Segments <span style="color:var(--fg-3);font-weight:400;text-transform:none;letter-spacing:0" id="segcount"></span></h4>
+        <div class="seglist" id="seglist"></div>
+      </div>
+    </div>
+
+    <!-- TOOLS -->
+    <div class="tabpane" id="pane-tools">
+      <div class="sect">
+        <h4>Working directories</h4>
+        <div id="wdlist"></div>
+        <button class="btn" id="btn-addwd" style="margin-top:6px">＋ Add directory</button>
+        <p style="font-size:11.5px;color:var(--fg-3);margin-top:9px">
+          File and shell tools are confined to these paths.
+        </p>
+      </div>
+      <div class="sect">
+        <h4>Enabled tools</h4>
+        <div id="toollist"></div>
+      </div>
+    </div>
+
+    <!-- SETTINGS -->
+    <div class="tabpane" id="pane-settings">
+      <div class="sect">
+        <h4>Model</h4>
+        <div class="field">
+          <label for="f-provider">API key / provider</label>
+          <select id="f-provider">
+            <option value="openrouter">OpenRouter (OPENROUTER_API_KEY)</option>
+            <option value="anthropic">Anthropic direct (ANTHROPIC_API_KEY)</option>
+          </select>
+          <small id="f-provider-note">Switching maps the chat and compaction models to their counterparts. Save settings to apply.</small>
+        </div>
+        <div class="field">
+          <label id="f-model-label">Model id (OpenRouter)</label>
+          <input type="text" id="f-model" list="modellist" spellcheck="false">
+          <datalist id="modellist"></datalist>
+          <datalist id="modellist-anthropic"></datalist>
+        </div>
+        <div class="row2">
+          <div class="field">
+            <label>Context window</label>
+            <input type="number" id="f-ctx" step="1000">
+          </div>
+          <div class="field">
+            <label>Max output</label>
+            <input type="number" id="f-maxout" step="500">
+          </div>
+        </div>
+        <div class="row2">
+          <div class="field">
+            <label>Temperature <span id="f-temp-v" style="font-family:var(--mono)"></span></label>
+            <input type="range" id="f-temp" min="0" max="2" step="0.05">
+          </div>
+          <div class="field">
+            <label>Reasoning effort</label>
+            <select id="f-reasoning">
+              <option value="high">high</option>
+              <option value="medium">medium</option>
+              <option value="low">low</option>
+              <option value="off">off</option>
+              <option value="default">provider default</option>
+            </select>
+          </div>
+        </div>
+        <div class="row2">
+          <div class="field"><label>Parallel child agents (root limit)</label><input id="f-agent-parallel" type="number" min="1" max="8" value="4"></div>
+          <div class="field"><label>Delegation depth limit</label><input id="f-agent-depth" type="number" min="1" max="4" value="2"></div>
+        </div>
+        <div class="field"><label>Child timeout including queue (seconds)</label><input id="f-agent-timeout" type="number" min="1" max="604800" value="3600"></div>
+        <div class="field">
+          <label>Tool iterations per turn (0 = unlimited)</label>
+          <input type="number" id="f-maxiter" min="0" step="1">
+          <small>Unlimited runs until finished, an error, or Stop. Long runs can incur API costs.</small>
+        </div>
+        <div class="field">
+          <label for="f-model-pricing">Pricing / service tier</label>
+          <select id="f-model-pricing">
+            <option value="standard">Standard (normal routing)</option>
+            <option value="prefer_flex">Try Flex; allow standard-price fallback</option>
+            <option value="flex_only">Flex only; stop if unavailable</option>
+          </select>
+          <small>Flex can be slower or capacity-limited. Often 50% lower tariffs, not a guaranteed discount. Save settings to apply.</small>
+          <button type="button" class="btn" id="model-flex-refresh">Refresh Flex availability (no charge)</button>
+        </div>
+        <div id="model-flex" class="provcheck"></div>
+        <div id="model-price" class="pricebox"></div>
+        <div id="model-check" class="provcheck"></div>
+      </div>
+
+      <div class="sect">
+        <h4>Compaction &amp; summary model</h4>
+        <div class="field">
+          <label>Used for context compaction <em>and</em> for <code>summarize_file(mode="llm")</code></label>
+          <input type="text" id="f-summodel" list="modellist" spellcheck="false">
+        </div>
+          <div class="field">
+            <label>Reasoning effort</label>
+            <select id="f-sumreasoning">
+              <option value="high">high</option>
+              <option value="medium">medium</option>
+              <option value="low">low</option>
+              <option value="off">off</option>
+              <option value="default">provider default</option>
+            </select>
+          </div>
+        <div class="field">
+          <label for="f-sum-pricing">Pricing / service tier</label>
+          <select id="f-sum-pricing">
+            <option value="standard">Standard (normal routing)</option>
+            <option value="prefer_flex">Try Flex; allow standard-price fallback</option>
+            <option value="flex_only">Flex only; stop if unavailable</option>
+          </select>
+          <small>Flex can be slower or capacity-limited. Often 50% lower tariffs, not a guaranteed discount. Save settings to apply.</small>
+          <button type="button" class="btn" id="sum-flex-refresh">Refresh Flex availability (no charge)</button>
+        </div>
+        <div id="sum-flex" class="provcheck"></div>
+        <div id="sum-price" class="pricebox"></div>
+        <div id="sum-check" class="provcheck"></div>
+        <p style="font-size:11.5px;color:var(--fg-3);margin:6px 0 0">
+          Long input, short output, no thinking required — a small model is as
+          accurate here as a large one at a fraction of the price. See MODELS.md.
+        </p>
+      </div>
+
+      <div class="sect">
+        <h4>Provider region</h4>
+        <div class="field">
+          <select id="f-provpolicy">
+            <option value="eu_us">EU / US providers only</option>
+            <option value="any">Any provider (no restriction)</option>
+          </select>
+        </div>
+        <p style="font-size:11.5px;color:var(--fg-3);margin:0">
+          Pins every request to providers headquartered <em>and</em> hosted in the
+          EU/EEA/UK/CH/US/CA, with fallbacks limited to the allowlist. A model's origin and its
+          serving location are different things: a Chinese model served from a US
+          datacentre is allowed, and a request that cannot be served in-region
+          fails loudly rather than silently routing elsewhere.
+        </p>
+        <p id="prov-count" style="font-size:11px;color:var(--fg-3);margin:6px 0 0"></p>
+      </div>
+
+      <div class="sect">
+        <h4>System prompt additions</h4>
+        <div class="field">
+          <textarea id="f-sys" placeholder="Project conventions, house style, constraints…"></textarea>
+        </div>
+      </div>
+      <button class="btn primary" id="btn-savecfg">Save settings</button>
+      <button class="btn" id="btn-defaults">Use saved settings, Engine &amp; Tools as new-chat defaults</button>
+    </div>
+
+    <!-- COMPACTION ENGINE -->
+    <div class="tabpane" id="pane-compaction">
+      <div class="sect">
+        <h4>Cache-stable split</h4>
+        <div class="switchrow">
+          <input type="checkbox" id="c-enabled">
+          <span class="lbl">Compaction enabled<small>Turn off to measure the unmanaged baseline.</small></span>
+        </div>
+        <div class="field">
+          <label>Recent working tail — target <b id="c-hot-v"></b> tokens</label>
+          <input type="number" id="c-hot" min="0" step="1">
+          <small id="c-hot-state">Changes require Save engine config below.</small>
+        </div>
+        <div class="field">
+          <label>Rewrite every N completed tool batches</label>
+          <input type="number" id="c-interval" min="1" max="100" step="1">
+          <small>A batch may contain several calls. Linked mode reviews, compacts, then freezes only on a due cycle. Checkpoints and pressure checks still run every batch.</small>
+        </div>
+        <div class="row2">
+          <div class="field"><label>Early flush: new tokens</label><input type="number" id="c-newtokens" min="1000" step="1000"></div>
+          <div class="field"><label>Early flush: pressure</label><input type="number" id="c-pressure" min="0.1" max="0.95" step="0.05"></div>
+        </div>
+
+        <div class="switchrow">
+          <input type="checkbox" id="c-review">
+          <span class="lbl">Review → compact → freeze<small>Check retiring history once before caching it permanently. Fresh batches, recent observations and pins are protected. Already-frozen history is not thawed.</small></span>
+        </div>
+        <div class="field">
+          <label for="c-delivery">Initial tool-result cap (tokens; 0 = unlimited)</label>
+          <input type="number" id="c-delivery" min="0" max="100000" step="1000">
+          <small>Oversized text gets an explicitly incomplete head/tail excerpt and exact recall handle. Important middle content can be omitted. Recalls, errors, pins and native images are exempt.</small>
+        </div>
+        <p style="font-size:11.5px;color:var(--fg-3);margin:0 0 6px">
+          Reviewed history freezes byte-identically. The working tail may exceed its target
+          while a review is pending or fresh evidence is protected. Paid summaries run only
+          under pressure or manual deep compaction, not on every review cycle.
+        </p>
+        <div class="row2">
+          <div class="field">
+            <label>Protected observations</label>
+            <input type="number" id="c-protobs" min="0" max="30">
+          </div>
+          <div class="field">
+            <label>Protected user turns</label>
+            <input type="number" id="c-protusr" min="0" max="10">
+          </div>
+        </div>
+      </div>
+
+      <div class="sect">
+        <h4>Automatic document compaction</h4>
+        <div class="switchrow">
+          <input type="checkbox" id="c-docs">
+          <span class="lbl">Incremental document compaction<small>Master switch for dedup, masking, offload and selective condensation below. Off skips incremental reductions; the separate initial-delivery cap still applies. Review/freezing policy and checkpoints continue.</small></span>
+        </div>
+        <h4>Tier 1 — free, on rewrite cadence</h4>
+        <div class="switchrow">
+          <input type="checkbox" id="c-dedup">
+          <span class="lbl">Supersession &amp; dedup<small>Collapse stale reads of a file that was edited since, and byte-identical repeat output.</small></span>
+        </div>
+        <div class="switchrow">
+          <input type="checkbox" id="c-mask">
+          <span class="lbl">Age-tiered masking<small>Older observations decay through shrinking token budgets.</small></span>
+        </div>
+        <div class="switchrow">
+          <input type="checkbox" id="c-offload">
+          <span class="lbl">Disk offload<small>Large bodies move to disk; <code>recall</code> restores them losslessly.</small></span>
+        </div>
+      </div>
+
+      <div class="sect">
+        <h4>Tier 2 — significance</h4>
+        <div class="switchrow">
+          <input type="checkbox" id="c-sig">
+          <span class="lbl">Rank &amp; condense<small>Score segments by forward-reference, density, decisions; condense the dull ones.</small></span>
+        </div>
+        <div class="field">
+          <label>Condense below significance <b id="c-sigt-v"></b></label>
+          <input type="range" id="c-sigt" min="0" max="0.8" step="0.05">
+        </div>
+      </div>
+
+      <div class="sect">
+        <h4>Tier 3 — deep compaction</h4>
+        <div class="switchrow">
+          <input type="checkbox" id="c-deep">
+          <span class="lbl">Enabled<small>Rare, expensive, rebuilds the prefix.</small></span>
+        </div>
+        <div class="field">
+          <label>Trigger at <b id="c-trig-v"></b> of the window</label>
+          <input type="range" id="c-trig" min="0.4" max="0.95" step="0.01">
+        </div>
+        <div class="field">
+          <label>Target fraction remaining after deep compaction (0.10 = 10%)</label>
+          <input type="number" id="c-target" step="0.01" min="0.01" max="0.5">
+        </div>
+        <p style="font-size:11.5px;color:var(--fg-3);margin:0 0 8px" id="c-tailexpl"></p>
+        <div class="row2">
+          <div class="field">
+            <label>Cooldown (turns)</label>
+            <input type="number" id="c-cool" min="0" max="50">
+          </div>
+          <div class="field">
+            <label>Min gain (tokens)</label>
+            <input type="number" id="c-mingain" step="1000">
+          </div>
+        </div>
+        <div class="field">
+          <label>Summariser model</label>
+          <input type="text" id="c-summodel" list="modellist" spellcheck="false">
+        </div>
+      </div>
+
+      <button class="btn primary" id="btn-savecmp">Save engine config</button>
+
+      <div class="sect" style="margin-top:20px">
+        <h4>Compaction log</h4>
+        <div id="cmplog"></div>
+      </div>
+    </div>
+  </aside>
+</div>
+
+<div id="modalhost"></div>
+<script src="/static/vendor/markdown-it-15.0.2.min.js" integrity="sha256-Y1lyuYUijor58BQ2R8aGFrejuwn2lG5+SlLkPc9ee+U="></script>
+<script src="/static/markdown.js"></script>
+<script src="/static/app.js"></script>
+</body>
+</html>

@@ -1,0 +1,54 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ctxagent"
+version = "0.1.0"
+description = "A local LLM agent with a GUI whose context is managed by the model itself: compaction at task boundaries, curation of dead tool output, lossless recall."
+readme = "README.md"
+requires-python = ">=3.11"
+license = { file = "LICENSE" }
+authors = [{ name = "Matthias Busch", email = "matthias.busch@tuhh.de" }]
+keywords = ["llm", "agent", "context compaction", "prompt cache", "benchmark"]
+classifiers = [
+  "Programming Language :: Python :: 3",
+  "Operating System :: OS Independent",
+  "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
+# core: the agent, its GUI server and the compaction engine
+dependencies = [
+  "fastapi>=0.110",
+  "uvicorn[standard]>=0.27",
+  "httpx>=0.27",
+  "pydantic>=2.5",
+  "tiktoken>=0.6",
+  "jsonschema>=4.18",
+  "pillow>=10.3",
+  "psutil>=5.9.8",
+]
+
+[project.optional-dependencies]
+# document readers (each is probed at call time; without one you get a message naming the package)
+readers = [
+  "pymupdf>=1.24", "python-docx>=1.1", "lxml>=4.9", "python-pptx>=0.6", "openpyxl>=3.1",
+  "pandas>=2.0", "pyyaml>=6.0", "beautifulsoup4>=4.12", "chardet>=5.0",
+]
+# MCP server that lends the readers to other agents (ctxagent/mcp_server.py)
+mcp = ["mcp>=1.2"]
+# the benchmark (bench/): analysis, figures, SciCode checker
+bench = ["numpy", "scipy", "sympy", "matplotlib", "pandas", "h5py", "pytest", "aiohttp"]
+all = ["ctxagent[readers,mcp,bench]"]
+
+[project.scripts]
+ctxagent = "ctxagent.launch:main"
+
+[project.urls]
+Homepage = "https://github.com/MatthiasHBusch/CTXAgent"
+Paper = "https://github.com/MatthiasHBusch/CTXAgent/tree/main/paper"
+
+[tool.setuptools.packages.find]
+include = ["ctxagent*"]
+
+# The GUI (web/) and the data directory (.ctxagent/) are resolved relative to the package's
+# parent directory, so install the package in editable mode from a clone (pip install -e .).

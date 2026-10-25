@@ -1,0 +1,24 @@
+# secrets and local state
+.env
+api_key*.txt
+.ctxagent/
+.ctxagent-build/
+
+# python
+__pycache__/
+*.pyc
+.venv/
+*.egg-info/
+build/
+dist/
+
+# benchmark: per-trial working directories (chats, blobs, proxy logs) and the pinned
+# external sources / toolchains (fetched by bench/external/fetch.ps1 or fetch.sh)
+bench/.work/
+bench/external/*
+!bench/external/README.md
+!bench/external/fetch.ps1
+!bench/external/fetch.sh
+!bench/external/js_shared.package.json
+!bench/external/opencode.package.json
+!bench/external/heavy_selection.json

@@ -1,0 +1,41 @@
+cff-version: 1.2.0
+message: "If you use this software or the benchmark, please cite the paper below."
+title: "ctxagent: letting the model manage its own context"
+authors:
+  - family-names: Busch
+    given-names: Matthias
+    email: matthias.busch@tuhh.de
+    affiliation: Hamburg University of Technology
+  - family-names: Tacke
+    given-names: Marius
+    affiliation: Helmholtz-Zentrum Hereon
+  - family-names: Aydin
+    given-names: Roland C.
+    affiliation: Hamburg University of Technology
+  - family-names: Feiler
+    given-names: Christian
+    affiliation: Helmholtz-Zentrum Hereon
+  - family-names: Cyron
+    given-names: Christian J.
+    affiliation: Hamburg University of Technology
+repository-code: "https://github.com/MatthiasHBusch/CTXAgent"
+license: CC-BY-4.0
+version: 0.1.0
+date-released: 2026-10-21
+preferred-citation:
+  type: article
+  title: "CTXAgent: Self-Controlled Context Management of LLM Agents"
+  authors:
+    - family-names: Busch
+      given-names: Matthias
+    - family-names: Tacke
+      given-names: Marius
+    - family-names: Aydin
+      given-names: Roland C.
+    - family-names: Feiler
+      given-names: Christian
+    - family-names: Cyron
+      given-names: Christian J.
+  year: 2026
+  journal: "arXiv preprint"
+  notes: "Preprint identifier to be added on submission."

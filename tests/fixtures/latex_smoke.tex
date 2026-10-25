@@ -1,0 +1,13 @@
+\documentclass{article}
+\title{Agent LaTeX workflow verification}
+\author{Synthetic test document}
+\begin{document}
+\maketitle
+\section{A reproducible check}\label{sec:check}
+This document verifies the managed build, diagnostics and visual review loop.
+The reference to Section~\ref{sec:check} should resolve after latexmk completes.
+\begin{equation}\label{eq:test}
+  E = mc^2
+\end{equation}
+Equation~\ref{eq:test} is a formatting fixture, not a scientific result.
+\end{document}
