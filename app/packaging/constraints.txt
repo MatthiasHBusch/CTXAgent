@@ -1,0 +1,28 @@
+# Pins for the installer build (packaging/build.ps1 installs requirements.txt
+# under these constraints). They are the versions the offline test suite runs
+# against in the development environment, so the bundle ships what was tested.
+# Unpinned, pip picks new majors (mcp 2, pymupdf 2 with onnxruntime, pandas 3).
+fastapi==0.123.10
+starlette==0.50.0
+uvicorn==0.40.0
+httpx==0.28.1
+anthropic==1.17.0
+pydantic==2.12.5
+tiktoken==0.9.0
+jsonschema==4.25.1
+pymupdf==1.27.2.2
+python-docx==1.2.0
+lxml==4.9.3
+openpyxl==3.1.5
+pandas==2.1.4
+numpy==1.26.4
+pyyaml==6.0.3
+beautifulsoup4==4.12.2
+chardet==5.2.0
+pillow==10.4.0
+psutil==7.2.2
+mcp==1.25.0
+# desktop shell and build tools
+pywebview==6.2.1
+pythonnet==3.2.1
+pyinstaller==6.22.3

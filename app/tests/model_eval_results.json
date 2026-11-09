@@ -1,0 +1,430 @@
+[
+ {
+  "model": "z-ai/glm-5.3-flash",
+  "in_tokens": 33236,
+  "policy": "eu_us",
+  "A_ms": 153654.0,
+  "A_hits": 15.0,
+  "A_missed": [],
+  "A_out": 1131.0,
+  "A_sections": 9.0,
+  "A_text": "## 1. User intent\n- \"I need a root finder for the beam deflection model. Start with bisection on the residual.\" \u2014 the bisection approach was later superseded.\n- \"Actually forget bisection \u2014 switch to a Newton iteration. It has to converge to a tolerance of 1e-11.\"\n- \"Jonas from the lab says the report has to be in SI units throughout. Also please serve the preview on port 8765.\"\n\n## 2. Key decisions and rationale\n- Superseded bisection in favor of Newton iteration, per the user's explicit reversal.\n- Newton uses a damped line search because \"the Jacobian is cheap to form analytically for this residual, and undamped Newton diverges on the stiff cases.\"\n- Added a pseudo-inverse fallback when the Jacobian's condition number blows up, to fix the singular-Jacobian failure at iteration 7.\n- Report output converted to SI units throughout, per Jonas's requirement.\n- Preview served on port 8765 as requested.\n\n## 3. Files and resources touched\n- `src/solver/newton.py` \u2014 the root-finder module; originally a placeholder of ~900 lines of \"# bisection scaffolding line N\" comments; edited twice (first edit: 1 replacement, switch to damped Newton; second edit: 2 replacements, pseudo-inverse fallback). Current state: damped Newton with pseudo-inverse fallback, all tests passing.\n- `tests/test_newton.py` \u2014 test suite containing `test_case_0` through `test_case_23` plus `test_singular_jacobian` (24 tests total); not edited; all 24 pass.\n- `src/report/render.py` \u2014 report renderer, ~700 lines of `render_line(N)  # golden ratio spacing 0.618` scaffolding; edited (4 replacements) to produce SI units; current state: renders in SI units.\n- `data/beam_deflection_2026.csv` \u2014 beam deflection dataset, 48211 rows; read only, not modified. Three columns: row index, value (increments of 0.6180, golden ratio), count (increments of 2).\n- No prior summary was supplied.\n\n## 4. Technical facts established\n- numpy 2.1.3 installed at `C:\\anaconda3\\Lib\\site-packages` (via `pip show numpy`).\n- MKL is importable (`python -c 'import mkl'` succeeds); the run emitted the note: \"on this machine the solver only reproduces if MKL_NUM_THREADS=1 is set; otherwise the last digit drifts.\" The machine exposes 60 thread pool workers.\n- Working test command: `pytest -q tests/test_newton.py` \u2192 \"24 passed in 3.87s\".\n- Working serve command: `python -m report.serve --port 8765` \u2192 \"serving on http://127.0.0.1:8765\"; assets `/asset/0` through `/asset/119` all returned HTTP 200.\n- The Jacobian goes singular at iteration 7 on at least one stiff case (see errors).\n\n## 5. Errors and resolutions\n- `pytest -q tests/test_newton.py` first run: \"1 failed, 23 passed in 4.12s\". Failing test: `tests/test_newton.py::test_singular_jacobian FAILED` with `E   ZeroDivisionError: singular Jacobian at iteration 7`. Resolved by falling back to a pseudo-inverse when the condition number blows up; rerun gave \"24 passed in 3.87s\".\n- Reproducibility quirk (not an exception, still open as an environmental constraint): solver results only reproduce exactly when `MKL_NUM_THREADS=1` is set; otherwise \"the last digit drifts\".\n\n## 6. Work completed\n- Newton iteration with damped line search implemented in `src/solver/newton.py`, replacing the bisection scaffolding.\n- Pseudo-inverse fallback added for singular/ill-conditioned Jacobians; `test_singular_jacobian` now passes.\n- Full suite green: \"24 passed in 3.87s\" for `pytest -q tests/test_newton.py`.\n- `src/report/render.py` edited (4 replacements) so the report renders in SI units.\n- Preview server launched via `python -m report.serve --port 8765`; serving on http://127.0.0.1:8765 with assets returning 200.\n\n## 7. Outstanding work\n- Document the `damping` parameter in the docstring (the assistant's own stated remaining item).\n- The user's acceptance criterion of convergence \"to a tolerance of 1e-11\" \u2014 tests all pass, but no explicit standalone check that the tolerance value is 1e-11 was run or shown (unknown whether the tests assert it).\n\n## 8. Current state\n- Solver work is complete and green; report renders in SI units; preview server is up on http://127.0.0.1:8765. The last assistant message stated: \"Report renders in SI units and the preview is on port 8765. Still outstanding: document the `damping` parameter in the docstring.\"\n\n## 9. Next step\n- Document the `damping` parameter in the docstring of `src/solver/newton.py`, per the assistant's last statement of outstanding work.",
+  "B_ms": 60965.0,
+  "B_ok": true,
+  "B_count": 8.0,
+  "B_freed": 9464.0,
+  "B_ratio": 0.9478217325988983,
+  "B_hits": 5.0,
+  "B_missed": [],
+  "cost": 0.00724865,
+  "runs": 1,
+  "A_hits_spread": [
+   15,
+   15
+  ],
+  "B_hits_spread": [
+   5,
+   5
+  ],
+  "eu_us": true,
+  "region_note": "20 EU/US endpoint(s) available (cheapest: DeepInfra, US, $0.075/M). 7 endpoint(s) excluded by region."
+ },
+ {
+  "model": "openai/gpt-5.6-luna",
+  "in_tokens": 33236,
+  "policy": "eu_us",
+  "A_ms": 9978.0,
+  "A_hits": 15.0,
+  "A_missed": [],
+  "A_out": 1088.0,
+  "A_sections": 9.0,
+  "A_text": "## 1. User intent\n\n- Initially requested: \u201cI need a root finder for the beam deflection model. Start with bisection on the residual.\u201d\n- Superseded that request with: \u201cActually forget bisection \u2014 switch to a Newton iteration. It has to converge to a tolerance of 1e-11.\u201d\n- Requested that the report be in SI units throughout: \u201cJonas from the lab says the report has to be in SI units throughout.\u201d\n- Requested the preview be served on port `8765`: \u201cAlso please serve the preview on port 8765.\u201d\n\n## 2. Key decisions and rationale\n\n- Bisection was abandoned because the user explicitly switched to Newton iteration.\n- Newton was implemented with a damped line search because the Jacobian was described as cheap to form analytically and undamped Newton diverged on stiff cases.\n- A pseudo-inverse fallback was added when the Jacobian becomes singular or its condition number becomes problematic. This resolved the singular-Jacobian test failure.\n- SI-unit rendering was implemented in `src/report/render.py`.\n- The preview was started with `python -m report.serve --port 8765`.\n- The exact implementation details of the Newton method, damping policy, tolerance handling, and SI conversions are not fully visible in the session output.\n\n## 3. Files and resources touched\n\n- `src/solver/newton.py` \u2014 Newton root solver; initially contained 900 lines of bisection scaffolding, then was edited to implement damped Newton and pseudo-inverse fallback. Current state: tests pass.\n- `tests/test_newton.py` \u2014 Newton solver tests. Current state: `24 passed`.\n- `src/report/render.py` \u2014 report renderer; edited with 4 replacements to render SI units. Current state: edited and preview requests returned HTTP 200.\n- `data/beam_deflection_2026.csv` \u2014 beam data resource, 48,211 rows extracted. Current state: read only; no edits reported.\n- Preview server \u2014 launched via `python -m report.serve --port 8765`; current state at the last report: serving on `http://127.0.0.1:8765`.\n\n## 4. Technical facts established\n\n- NumPy version: `2.1.3`, installed at `C:\\anaconda3\\Lib\\site-packages`.\n- The solver only reproduces reliably when `MKL_NUM_THREADS=1` is set; otherwise the last digit drifts.\n- The beam CSV contains values such as `0,0.0000,0`, `1,0.6180,2`, with increments of `0.6180` and `2`; the exact column schema was not documented.\n- Preview server command that worked:\n  `python -m report.serve --port 8765`\n- Preview URL:\n  `http://127.0.0.1:8765`\n- Preview asset requests `/asset/0` through `/asset/119` returned `200`.\n- Required solver convergence tolerance is `1e-11`.\n\n## 5. Errors and resolutions\n\n- Error:\n  `ZeroDivisionError: singular Jacobian at iteration 7`\n  \n  Resolution: added a pseudo-inverse fallback when the Jacobian condition number becomes problematic. After the change, all Newton tests passed.\n\n- Initial test result:\n  `1 failed, 23 passed in 3.87s`\n  \n  Resolution: pseudo-inverse fallback; subsequent result was `24 passed in 3.87s`.\n\n- Environment reproducibility issue:\n  `NOTE: on this machine the solver only reproduces if MKL_NUM_THREADS=1 is set; otherwise the last digit drifts.`\n  \n  Status: known constraint; not reported as fixed.\n\n## 6. Work completed\n\n- Replaced the intended bisection direction with Newton iteration.\n- Added damping/line-search behavior.\n- Added pseudo-inverse handling for singular or ill-conditioned Jacobians.\n- Verified `tests/test_newton.py` successfully:\n  `24 passed in 3.87s`\n- Updated report rendering for SI units.\n- Started the preview server on port `8765`.\n- Confirmed preview asset requests returned HTTP `200`.\n\n## 7. Outstanding work\n\n1. Document the `damping` parameter in the solver docstring, as explicitly noted by the assistant.\n2. Verify that all report quantities\u2014not merely the edited rendering locations\u2014are SI units throughout.\n3. If reproducibility matters, ensure test/preview commands set `MKL_NUM_THREADS=1`.\n4. Confirm the preview server remains running and accessible at `http://127.0.0.1:8765`.\n5. No full report test suite or explicit SI-unit test result was recorded.\n\n## 8. Current state\n\nThe Newton implementation and its tests are passing, the report renderer has been edited for SI units, and the preview was launched successfully on port `8765`. The last known unfinished task is documenting the `damping` parameter in `src/solver/newton.py`.\n\n## 9. Next step\n\nEdit `src/solver/newton.py` to add a docstring description for the `damping` parameter, then rerun `pytest -q tests/test_newton.py` with `MKL_NUM_THREADS=1`.",
+  "B_ms": 3130.0,
+  "B_ok": true,
+  "B_count": 8.0,
+  "B_freed": 9567.0,
+  "B_ratio": 0.9581372058087131,
+  "B_hits": 5.0,
+  "B_missed": [],
+  "cost": 0.0104298,
+  "runs": 1,
+  "A_hits_spread": [
+   15,
+   15
+  ],
+  "B_hits_spread": [
+   5,
+   5
+  ],
+  "eu_us": true,
+  "region_note": "7 EU/US endpoint(s) available (cheapest: OpenAI, US, $0.100/M). 0 endpoint(s) excluded by region."
+ },
+ {
+  "model": "google/gemini-3.1-flash-lite",
+  "in_tokens": 33236,
+  "policy": "eu_us",
+  "A_ms": 3931.0,
+  "A_hits": 15.0,
+  "A_missed": [],
+  "A_out": 713.0,
+  "A_sections": 9.0,
+  "A_text": "## 1. User intent\n* Implement a root finder for the beam deflection model.\n* Initially requested bisection, then switched to Newton iteration with a convergence tolerance of `1e-11`.\n* Ensure the report uses SI units throughout.\n* Serve the report preview on port `8765`.\n* Document the `damping` parameter in the solver's docstring.\n\n## 2. Key decisions and rationale\n* **Newton over Bisection:** Switched to Newton iteration as requested for better performance on the beam deflection model.\n* **Damped Newton:** Implemented a damped line search because the Jacobian is analytically available and undamped Newton was found to diverge on stiff cases.\n* **Pseudo-inverse fallback:** Added a fallback to a pseudo-inverse when the Jacobian becomes singular (observed at iteration 7) to ensure robustness.\n* **MKL constraint:** Discovered that the solver results are non-deterministic unless `MKL_NUM_THREADS=1` is set.\n* **SI Units:** Updated `src/report/render.py` to remove the \"golden ratio spacing\" (0.618) and enforce SI unit standards.\n\n## 3. Files and resources touched\n* `src/solver/newton.py` \u2014 Solver implementation \u2014 Modified to implement Newton iteration with damping and pseudo-inverse fallback \u2014 Current state: Functional.\n* `src/report/render.py` \u2014 Report rendering logic \u2014 Modified to remove non-SI spacing \u2014 Current state: Functional.\n* `tests/test_newton.py` \u2014 Test suite \u2014 Used to verify solver convergence \u2014 Current state: All 24 tests passing.\n* `data/beam_deflection_2026.csv` \u2014 Data source \u2014 Read to verify input format.\n\n## 4. Technical facts established\n* **Environment:** `numpy` version `2.1.3` is installed.\n* **Concurrency:** `MKL_NUM_THREADS=1` is required for deterministic results in the solver.\n* **Port:** The report server accepts a `--port` argument (e.g., `python -m report.serve --port 8765`).\n* **Error:** `ZeroDivisionError: singular Jacobian at iteration 7` was the primary failure mode before implementing the pseudo-inverse fallback.\n\n## 5. Errors and resolutions\n* **Error:** `ZeroDivisionError: singular Jacobian at iteration 7`\n    * **Resolution:** Implemented a fallback to a pseudo-inverse when the condition number of the Jacobian is too high.\n* **Error:** Non-deterministic results in solver.\n    * **Resolution:** Identified that `MKL_NUM_THREADS=1` must be set to ensure reproducibility.\n\n## 6. Work completed\n* Implemented Newton iteration solver in `src/solver/newton.py`.\n* Added damped line search and pseudo-inverse fallback for stability.\n* Verified solver with `pytest` (24/24 tests passed).\n* Updated `src/report/render.py` to use SI units.\n* Configured report server to run on port `8765`.\n\n## 7. Outstanding work\n* Document the `damping` parameter in the `src/solver/newton.py` docstring.\n\n## 8. Current state\nThe solver is fully functional and tested. The report server is configured and ready for preview on port `8765`. The final documentation task remains.\n\n## 9. Next step\nUpdate the docstring in `src/solver/newton.py` to include documentation for the `damping` parameter.",
+  "B_ms": 2114.0,
+  "B_ok": true,
+  "B_count": 8.0,
+  "B_freed": 9598.0,
+  "B_ratio": 0.9612418627941913,
+  "B_hits": 5.0,
+  "B_missed": [],
+  "cost": 0.01247475,
+  "runs": 1,
+  "A_hits_spread": [
+   15,
+   15
+  ],
+  "B_hits_spread": [
+   5,
+   5
+  ],
+  "eu_us": true,
+  "region_note": "8 EU/US endpoint(s) available (cheapest: Google, US, $0.125/M). 0 endpoint(s) excluded by region."
+ },
+ {
+  "model": "inclusionai/ling-3.0-flash",
+  "in_tokens": 33236,
+  "policy": "eu_us",
+  "A_ms": 3856.0,
+  "A_hits": 14.0,
+  "A_missed": [
+   "magic constant"
+  ],
+  "A_out": 621.0,
+  "A_sections": 9.0,
+  "A_text": "## 1. User intent\n- Implement a root finder for the beam deflection model residual.\n- Initially requested bisection; then superseded to Newton iteration with tolerance 1e-11.\n- Report must be in SI units throughout (per Jonas from the lab).\n- Serve the report preview on port 8765.\n\n## 2. Key decisions and rationale\n- Switched from bisection to Newton iteration (user explicitly said \"forget bisection \u2014 switch to Newton\").\n- Chose damped line search because the Jacobian is cheap analytically but undamped Newton diverges on stiff cases.\n- Added pseudo-inverse fallback when the Jacobian condition number blows up (singular Jacobian at iteration 7 in `test_singular_jacobian`).\n- Report units changed to SI throughout in `src/report/render.py`.\n- Preview server started on port 8765 via `python -m report.serve --port 8765`.\n\n## 3. Files and resources touched\n- `src/solver/newton.py` \u2014 implemented damped Newton with pseudo-inverse fallback for singular Jacobian; 1 edit applied.\n- `src/report/render.py` \u2014 changed units to SI throughout; 4 replacements applied.\n- `data/beam_deflection_2026.csv` \u2014 read as reference data (48211 rows, CSV).\n- `tests/test_newton.py` \u2014 24 tests, all passing after fixes.\n\n## 4. Technical facts established\n- numpy version: 2.1.3.\n- Newton solver converges to 1e-11 tolerance with damped line search.\n- Singular Jacobian fallback uses pseudo-inverse (`np.linalg.pinv`) when condition number blows up.\n- MKL_NUM_THREADS=1 required on this machine for reproducible results; otherwise last digit drifts.\n- Report preview serves on http://127.0.0.1:8765.\n\n## 5. Errors and resolutions\n- `ZeroDivisionError: singular Jacobian at iteration 7` in `test_singular_jacobian` \u2014 resolved by adding pseudo-inverse fallback when Jacobian is singular.\n- Last test digit drifts without MKL_NUM_THREADS=1 \u2014 documented as environment quirk.\n\n## 6. Work completed\n- Newton solver implemented with damped line search and singular-Jacobian pseudo-inverse fallback.\n- All 24 tests in `tests/test_newton.py` pass.\n- Report units converted to SI throughout.\n- Preview server running on port 8765.\n\n## 7. Outstanding work\n- Document the `damping` parameter in the docstring of the Newton solver (explicitly noted as still outstanding in the last assistant message).\n\n## 8. Current state\n- Newton solver is implemented and all tests pass.\n- Report renders in SI units and preview is served on port 8765.\n- The `damping` parameter docstring is the only remaining item identified as outstanding.\n\n## 9. Next step\n- Add docstring documentation for the `damping` parameter in `src/solver/newton.py`.",
+  "B_ms": 7275.0,
+  "B_ok": true,
+  "B_count": 8.0,
+  "B_freed": 9582.0,
+  "B_ratio": 0.9596394591887831,
+  "B_hits": 5.0,
+  "B_missed": [],
+  "cost": 0.000971964,
+  "runs": 1,
+  "A_hits_spread": [
+   14,
+   14
+  ],
+  "B_hits_spread": [
+   5,
+   5
+  ],
+  "eu_us": true,
+  "region_note": "2 EU/US endpoint(s) available (cheapest: Novita, US, $0.021/M). 0 endpoint(s) excluded by region."
+ },
+ {
+  "model": "mistralai/mistral-small-3.2-24b-instruct",
+  "in_tokens": 33236,
+  "policy": "eu_us",
+  "A_ms": 37555.0,
+  "A_hits": 14.0,
+  "A_missed": [
+   "magic constant"
+  ],
+  "A_out": 673.0,
+  "A_sections": 9.0,
+  "A_text": "## 1. User intent\n- \"I need a root finder for the beam deflection model. Start with bisection on the residual.\"\n- \"Actually forget bisection \u2014 switch to a Newton iteration. It has to converge to a tolerance of 1e-11.\"\n- \"Jonas from the lab says the report has to be in SI units throughout. Also please serve the preview on port 8765.\"\n\n## 2. Key decisions and rationale\n- **Bisection to Newton**: Switched from bisection to Newton iteration because the user requested it, and Newton's method is generally faster for well-behaved functions.\n- **Damped line search**: Chose damped line search because the Jacobian is cheap to form analytically, and undamped Newton diverges on stiff cases.\n- **Pseudo-inverse for singular Jacobian**: Implemented a fallback to pseudo-inverse when the Jacobian becomes singular to handle cases where the Jacobian is not invertible.\n- **SI units in report**: Updated the report to use SI units as requested by Jonas from the lab.\n- **Port 8765 for preview**: Served the preview on port 8765 as requested.\n\n## 3. Files and resources touched\n- `src/solver/newton.py` \u2014 Python module \u2014 Implemented Newton iteration with damped line search and pseudo-inverse fallback \u2014 Modified.\n- `tests/test_newton.py` \u2014 Test cases \u2014 Verified Newton iteration implementation \u2014 Passed.\n- `src/report/render.py` \u2014 Report rendering script \u2014 Updated to use SI units \u2014 Modified.\n- `data/beam_deflection_2026.csv` \u2014 CSV data file \u2014 Read and processed \u2014 Unmodified.\n\n## 4. Technical facts established\n- **Numpy version**: 2.1.3.\n- **MKL threading issue**: The solver only reproduces if `MKL_NUM_THREADS=1` is set; otherwise, the last digit drifts.\n- **Singular Jacobian**: The Jacobian becomes singular at iteration 7, requiring a fallback to pseudo-inverse.\n- **Test cases**: All test cases in `tests/test_newton.py` passed after implementing the pseudo-inverse fallback.\n\n## 5. Errors and resolutions\n- **Singular Jacobian**: Error message: `ZeroDivisionError: singular Jacobian at iteration 7`. Resolved by implementing a fallback to pseudo-inverse when the Jacobian becomes singular.\n\n## 6. Work completed\n- Implemented Newton iteration with damped line search in `src/solver/newton.py`.\n- Handled singular Jacobian by falling back to a pseudo-inverse.\n- Updated the report to use SI units.\n- Served the preview on port 8765.\n\n## 7. Outstanding work\n- Document the `damping` parameter in the docstring of `src/solver/newton.py`.\n\n## 8. Current state\n- The Newton iteration implementation is complete and verified with test cases.\n- The report is rendered in SI units and the preview is served on port 8765.\n- The `damping` parameter in the docstring of `src/solver/newton.py` still needs to be documented.\n\n## 9. Next step\n- Document the `damping` parameter in the docstring of `src/solver/newton.py`.",
+  "B_ms": 15676.0,
+  "B_ok": true,
+  "B_count": 8.0,
+  "B_freed": 9610.0,
+  "B_ratio": 0.9624436654982473,
+  "B_hits": 5.0,
+  "B_missed": [],
+  "cost": 0.003456175,
+  "runs": 1,
+  "A_hits_spread": [
+   14,
+   14
+  ],
+  "B_hits_spread": [
+   5,
+   5
+  ],
+  "eu_us": true,
+  "region_note": "3 EU/US endpoint(s) available (cheapest: DeepInfra, US, $0.075/M). 0 endpoint(s) excluded by region."
+ },
+ {
+  "model": "deepseek/deepseek-v3.2",
+  "in_tokens": 33236,
+  "policy": "eu_us",
+  "A_ms": 17603.0,
+  "A_hits": 14.0,
+  "A_missed": [
+   "magic constant"
+  ],
+  "A_out": 827.0,
+  "A_sections": 9.0,
+  "A_text": "## 1. User intent\n- \"I need a root finder for the beam deflection model. Start with bisection on the residual.\" (Superseded: user later said \"Actually forget bisection \u2014 switch to a Newton iteration.\")\n- \"Actually forget bisection \u2014 switch to a Newton iteration. It has to converge to a tolerance of 1e-11.\"\n- \"Jonas from the lab says the report has to be in SI units throughout.\"\n- \"Also please serve the preview on port 8765.\"\n\n## 2. Key decisions and rationale\n- **Bisection was initially chosen** because the user requested it. **Rationale:** Starting simple.\n- **Newton iteration was chosen instead** after the user explicitly switched. **Rationale:** User's new directive.\n- **Damped line search was implemented** within Newton. **Rationale:** \"because the Jacobian is cheap to form analytically for this residual, and undamped Newton diverges on the stiff cases.\"\n- **Pseudo-inverse fallback was added** when the Jacobian becomes singular. **Rationale:** To handle the \"ZeroDivisionError: singular Jacobian at iteration 7\" error encountered during testing.\n- **SI units were implemented** in the report renderer. **Rationale:** User requirement from \"Jonas from the lab.\"\n- **Preview server set to port 8765.** **Rationale:** User's explicit request.\n\n## 3. Files and resources touched\n- `src/solver/newton.py` \u2014 Root finder implementation \u2014 Initially contained bisection scaffolding; edited to implement Newton iteration with damped line search and pseudo-inverse fallback \u2014 **Current state:** Newton solver passes all tests.\n- `src/report/render.py` \u2014 Report rendering module \u2014 Edited to convert units to SI \u2014 **Current state:** Modified, serving preview.\n- `data/beam_deflection_2026.csv` \u2014 Data file \u2014 Read for context \u2014 **Current state:** Unchanged.\n\n## 4. Technical facts established\n- **NumPy version:** `2.1.3`.\n- **Environment quirk:** \"on this machine the solver only reproduces if MKL_NUM_THREADS=1 is set; otherwise the last digit drifts.\"\n- **Test suite:** `tests/test_newton.py` contains at least 24 test cases (`test_case_0` through `test_case_23` plus `test_singular_jacobian`).\n- **Convergence tolerance:** `1e-11` (user requirement).\n- **Preview server command:** `python -m report.serve --port 8765`.\n- **Data file format:** `data/beam_deflection_2026.csv` is a CSV with at least 48211 rows.\n\n## 5. Errors and resolutions\n- **Error:** `ZeroDivisionError: singular Jacobian at iteration 7` in `tests/test_newton.py::test_singular_jacobian`.\n- **Resolution:** Modified `src/solver/newton.py` to fall back to a pseudo-inverse when the Jacobian's condition number blows up. **Result:** All 24 tests now pass.\n\n## 6. Work completed\n- Newton root finder implemented in `src/solver/newton.py` with damped line search and pseudo-inverse fallback for singular Jacobians.\n- All 24 test cases in `tests/test_newton.py` pass.\n- Report renderer (`src/report/render.py`) updated to use SI units.\n- Preview server is running successfully on port `8765`.\n\n## 7. Outstanding work\n1. Document the `damping` parameter in the docstring (noted by assistant as \"still outstanding\").\n\n## 8. Current state\nThe preview server is running on `http://127.0.0.1:8765`, serving assets. The Newton solver is complete and passes all tests. The report uses SI units.\n\n## 9. Next step\nDocument the `damping` parameter in the docstring of `src/solver/newton.py` as noted by the assistant.",
+  "B_ms": 7456.0,
+  "B_ok": true,
+  "B_count": 8.0,
+  "B_freed": 9619.0,
+  "B_ratio": 0.9633450175262894,
+  "B_hits": 5.0,
+  "B_missed": [],
+  "cost": 0.012117248999999998,
+  "runs": 1,
+  "A_hits_spread": [
+   14,
+   14
+  ],
+  "B_hits_spread": [
+   5,
+   5
+  ],
+  "eu_us": true,
+  "region_note": "10 EU/US endpoint(s) available (cheapest: GMICloud, US, $0.209/M). 5 endpoint(s) excluded by region."
+ },
+ {
+  "model": "anthropic/claude-haiku-4.5",
+  "in_tokens": 33236,
+  "policy": "eu_us",
+  "A_ms": 9392.0,
+  "A_hits": 14.0,
+  "A_missed": [
+   "magic constant"
+  ],
+  "A_out": 709.0,
+  "A_sections": 9.0,
+  "A_text": "## 1. User intent\n- Implement a root finder for the beam deflection model using Newton iteration (superseded initial request for bisection)\n- Convergence tolerance must be **1e-11**\n- Report must be in SI units throughout\n- Serve the preview on port **8765**\n- (Implied) Document the `damping` parameter in the docstring\n\n## 2. Key decisions and rationale\n- **Newton iteration chosen over bisection**: Faster convergence for smooth residuals; damped line search added because undamped Newton diverges on stiff cases\n- **Pseudo-inverse fallback**: When Jacobian condition number blows up, use `numpy.linalg.pinv()` instead of direct solve to handle singular Jacobian at iteration 7 in test case\n- **SI units in report**: Modified `src/report/render.py` to enforce SI throughout (4 replacements made)\n- **Port 8765**: Configured report server to listen on this port instead of default\n\n## 3. Files and resources touched\n- `src/solver/newton.py` \u2014 Newton solver with damped line search and pseudo-inverse fallback \u2014 edited (2 replacements), all 24 tests passing\n- `src/report/render.py` \u2014 Report rendering with unit conversion \u2014 edited (4 replacements), serving on port 8765\n- `data/beam_deflection_2026.csv` \u2014 Beam deflection data, 48211 rows \u2014 read, contains position (column 0) and deflection (column 2) pairs from 0 to 800 units\n\n## 4. Technical facts established\n- **numpy 2.1.3** installed and available\n- **MKL threading**: On this machine, solver reproducibility requires `MKL_NUM_THREADS=1`; otherwise last digit drifts due to thread pool scheduling\n- **Convergence tolerance**: 1e-11 (user requirement)\n- **Jacobian singularity**: Occurs at iteration 7 in `test_singular_jacobian`; resolved by switching to pseudo-inverse when condition number exceeds threshold\n- **Report server**: `python -m report.serve --port 8765` starts HTTP server on `http://127.0.0.1:8765`\n\n## 5. Errors and resolutions\n- **Error**: `ZeroDivisionError: singular Jacobian at iteration 7` in `tests/test_newton.py::test_singular_jacobian`\n  - **Resolution**: Added pseudo-inverse fallback in Newton solver; all 24 tests now pass\n\n## 6. Work completed\n- Newton iteration solver implemented with damped line search and pseudo-inverse fallback for singular Jacobians\n- All 24 tests in `tests/test_newton.py` passing\n- Report rendering updated to enforce SI units throughout (4 changes)\n- Report preview server running on port 8765 with successful asset serving (119+ GET requests logged)\n\n## 7. Outstanding work\n- Document the `damping` parameter in the Newton solver docstring (priority: high, user-facing API clarity)\n\n## 8. Current state\nReport server is actively serving on port 8765. Newton solver is stable and passing all tests. SI unit conversion is in place. The `damping` parameter in `src/solver/newton.py` lacks docstring documentation.\n\n## 9. Next step\nAdd docstring documentation for the `damping` parameter in `src/solver/newton.py` to complete the API specification.",
+  "B_ms": 5555.0,
+  "B_ok": true,
+  "B_count": 8.0,
+  "B_freed": 9573.0,
+  "B_ratio": 0.9587381071607411,
+  "B_hits": 5.0,
+  "B_missed": [],
+  "cost": 0.048766,
+  "runs": 1,
+  "A_hits_spread": [
+   14,
+   14
+  ],
+  "B_hits_spread": [
+   5,
+   5
+  ],
+  "eu_us": true,
+  "region_note": "8 EU/US endpoint(s) available (cheapest: Azure, US, $1.000/M). 0 endpoint(s) excluded by region."
+ },
+ {
+  "model": "openai/gpt-oss-120b",
+  "in_tokens": 33236,
+  "policy": "eu_us",
+  "A_ms": 27985.0,
+  "A_hits": 12.0,
+  "A_missed": [
+   "dataset name",
+   "decision+reason",
+   "magic constant"
+  ],
+  "A_out": 694.0,
+  "A_sections": 9.0,
+  "A_text": "## 1. User intent\n- \u201cI need a root finder for the beam deflection model. Start with bisection on the residual.\u201d  \n- \u201cActually forget bisection \u2014 switch to a Newton iteration. It has to converge to a tolerance of 1e-11.\u201d  \n- \u201cJonas from the lab says the report has to be in SI units throughout. Also please serve the preview on port 8765.\u201d  \n\n## 2. Key decisions and rationale\n- Switched from bisection to Newton because the user explicitly requested it and because Newton can reach the tighter tolerance (1e\u201111) more efficiently.  \n- Implemented a damped Newton with a fallback to a pseudo\u2011inverse when the Jacobian becomes singular (observed ZeroDivisionError at iteration\u202f7). This avoids divergence on stiff cases.  \n- Added SI\u2011unit handling in the report rendering code to satisfy lab requirement.  \n- Configured the report server to listen on port\u202f8765 as requested.  \n\n## 3. Files and resources touched\n- `src/solver/newton.py` \u2014 replaced placeholder bisection scaffolding with Newton iteration, added damping logic and pseudo\u2011inverse fallback (total of 3 edits).  \n- `src/report/render.py` \u2013 edited to enforce SI units throughout the generated report and to ensure the server uses the requested port (4 replacements).  \n- No other files were modified.\n\n## 4. Technical facts established\n- NumPy version: **2.1.3** (from `pip show numpy`).  \n- Newton iteration must achieve **tolerance\u202f1e\u201111**.  \n- Singular Jacobian can occur; using `numpy.linalg.pinv` (pseudo\u2011inverse) mitigates the issue.  \n- The report server is invoked via `python -m report.serve --port 8765` and successfully serves assets.  \n- MKL thread\u2011safety note: reproducible results only when `MKL_NUM_THREADS=1`.  \n\n## 5. Errors and resolutions\n- **Error:** `ZeroDivisionError: singular Jacobian at iteration 7` (raised inside NumPy linalg).  \n  **Resolution:** Added fallback to `numpy.linalg.pinv` when the Jacobian condition number is too high, eliminating the exception.  \n\n## 6. Work completed\n- Newton root\u2011finder implemented, passes all `tests/test_newton.py` (24 passed).  \n- Report now renders in SI units.  \n- Preview server runs on **port\u202f8765** and serves assets without error.  \n\n## 7. Outstanding work\n1. Add documentation for the `damping` parameter in the Newton solver\u2019s docstring.  \n2. Verify that the Newton solver respects the **1e\u201111** tolerance in all edge cases (e.g., add a test if not already present).  \n3. Ensure the report explicitly labels all quantities with SI units (e.g., include unit symbols in tables/figures).  \n\n## 8. Current state\n- The codebase is stable: all unit tests pass, the report server is live on the requested port, and SI\u2011unit compliance has been introduced.  \n\n## 9. Next step\nAdd a clear docstring entry for the `damping` parameter in `src/solver/newton.py`, describing its purpose, default value, and effect on convergence.",
+  "B_ms": 12605.0,
+  "B_ok": true,
+  "B_count": 8.0,
+  "B_freed": 9619.0,
+  "B_ratio": 0.9633450175262894,
+  "B_hits": 5.0,
+  "B_missed": [],
+  "cost": 0.0017851569999999999,
+  "runs": 1,
+  "A_hits_spread": [
+   12,
+   12
+  ],
+  "B_hits_spread": [
+   5,
+   5
+  ],
+  "eu_us": true,
+  "region_note": "19 EU/US endpoint(s) available (cheapest: CoreWeave, US, $0.030/M). 5 endpoint(s) excluded by region."
+ },
+ {
+  "model": "openai/gpt-5-nano",
+  "in_tokens": 33236,
+  "policy": "eu_us",
+  "A_ms": 9698.0,
+  "A_hits": 12.0,
+  "A_missed": [
+   "decision+reason",
+   "env quirk",
+   "magic constant"
+  ],
+  "A_out": 879.0,
+  "A_sections": 9.0,
+  "A_text": "## 1. User intent\n- Implement a root finder for the beam deflection model, starting with a Newton iteration (previously proposed bisection, now switched to Newton with damping).\n- Ensure convergence to tolerance 1e-11.\n- Ensure the report uses SI units throughout.\n- Serve the report preview on port 8765.\n- Document the damping parameter in the function docstring.\n\n## 2. Key decisions and rationale\n- Switched from bisection to Newton iteration with damping to improve convergence on stiff residuals.\n  - Rationale: Bisection was not required; Newton with a line search (damped Newton) handles stiffness and cheap Jacobian evaluation.\n- Implemented a fallback to pseudo-inverse for singular Jacobian cases to maintain robustness.\n  - Rationale: Tests revealed singular Jacobian at iteration 7; pseudo-inverse avoids breakdown and preserves progress.\n- Enabled serving the report preview on port 8765 and ensured SI units in the report.\n  - Rationale: Fulfills stakeholder requirements (Jonas) for SI consistency and accessible preview.\n- Documented the need to add damping parameter documentation in the solver\u2019s docstring as outstanding work.\n\n## 3. Files and resources touched\n- src/solver/newton.py \u2014 switched to Newton iteration with damping; added pseudo-inverse fallback for singular Jacobians.\n- src/report/render.py \u2014 minor edits to align spacing/rendering for report assets (maintain SI-ready rendering).\n- tests/test_newton.py \u2014 all tests pass after damping fallback.\n- data/beam_deflection_2026.csv \u2014 dataset unaffected; used for context.\n- Port 8765 server for preview:\n  - Command invoked: python -m report.serve --port 8765\n  - Result: serving on http://127.0.0.1:8765\n- Command history includes:\n  - \"pytest -q tests/test_newton.py\" (initial failure due to singular Jacobian)\n  - \"pytest -q tests/test_newton.py\" (all tests pass after changes)\n\n## 4. Technical facts established\n- NumPy version: 2.1.3 (from numpy: pip show numpy)\n- Newton with damping converges for all test cases after fallback to pseudo-inverse for singular Jacobian.\n- Tests: 24 passed in 3.87s after changes.\n- Report server: http://127.0.0.1:8765 is live and serving assets.\n- SI units requirement: confirmed by report rendering and data interpretation; remaining outstanding: docstring damping parameter.\n\n## 5. Errors and resolutions\n- Error: ZeroDivisionError due to singular Jacobian at iteration 7 during Newton.\n  - Resolution: Implemented a pseudo-inverse fallback for the Jacobian when it is ill-conditioned or singular.\n  - Tests updated: all test cases pass after this fix.\n- Note: MKL threading caveat observed, but not a blocker for functionality in this environment.\n\n## 6. Work completed\n- Implemented Newton iteration with damping in src/solver/newton.py.\n- Added safe-guard for singular Jacobian via pseudo-inverse fallback.\n- Verified tests: 24 passed in 3.87s.\n- Ensured report rendering/preview uses SI units; served preview on port 8765.\n- Documented current outstanding work: add damping parameter documentation in the function docstring.\n\n## 7. Outstanding work\n- Priority 1: Document the damping parameter in the Newton solver docstring (what it is, how it affects convergence, recommended defaults).\n- Priority 2: If needed, further tune line search/damping strategy for edge cases in highly stiff regimes.\n- Priority 3: Validate end-to-end with Jonas\u2019s SI-unit verification on all report figures and units.\n\n## 8. Current state\n- Newton with damping is in place; singular Jacobian is now handled gracefully via pseudo-inverse.\n- All tests pass (24/24).\n- SI-unit report rendering confirmed; preview accessible at port 8765.\n- Documentation for damping parameter remains to be added to the solver docstring.\n\n## 9. Next step\n- Add detailed damping parameter documentation to the Newton solver\u2019s docstring (explain parameter, defaults, guidance for choosing values, and interaction with line search). Then re-run tests to ensure nothing regresses.",
+  "B_ms": 8834.0,
+  "B_ok": true,
+  "B_count": 8.0,
+  "B_freed": 9583.0,
+  "B_ratio": 0.9597396094141212,
+  "B_hits": 5.0,
+  "B_missed": [],
+  "cost": 0.00267265,
+  "runs": 1,
+  "A_hits_spread": [
+   12,
+   12
+  ],
+  "B_hits_spread": [
+   5,
+   5
+  ],
+  "eu_us": true,
+  "region_note": "4 EU/US endpoint(s) available (cheapest: OpenAI, US, $0.025/M). 0 endpoint(s) excluded by region."
+ },
+ {
+  "model": "z-ai/glm-4.7-flash",
+  "in_tokens": 33236,
+  "policy": "eu_us",
+  "A_error": "HTTPStatusError: Client error '429 Too Many Requests' for url 'https://openrouter.ai/api/v1/chat/completions'\nFor more information check: https://developer.mozilla.org/en-US/doc",
+  "A_hits": 0.0,
+  "A_out": 0.0,
+  "A_ms": 188003.0,
+  "A_sections": 0.0,
+  "A_missed": [
+   "collaborator ask",
+   "dataset name",
+   "decision+reason",
+   "dependency ver",
+   "env quirk",
+   "error location",
+   "error string",
+   "file path",
+   "magic constant",
+   "open todo",
+   "port number",
+   "second file",
+   "superseded ask",
+   "test command",
+   "tolerance"
+  ],
+  "B_ms": 71336.0,
+  "B_ok": true,
+  "B_count": 8.0,
+  "B_freed": 9525.0,
+  "B_ratio": 0.9539308963445168,
+  "B_hits": 5.0,
+  "B_missed": [],
+  "cost": 0.0027748705,
+  "runs": 1,
+  "A_hits_spread": [
+   0,
+   0
+  ],
+  "B_hits_spread": [
+   5,
+   5
+  ],
+  "eu_us": true,
+  "region_note": "3 EU/US endpoint(s) available (cheapest: Venice, US, $0.060/M). 0 endpoint(s) excluded by region."
+ },
+ {
+  "model": "qwen/qwen3.7-flash",
+  "in_tokens": 33236,
+  "policy": "any",
+  "A_ms": 10754.0,
+  "A_hits": 14.0,
+  "A_missed": [
+   "magic constant"
+  ],
+  "A_out": 795.0,
+  "A_sections": 9.0,
+  "A_text": "## 1. User intent\n- Implement a root finder for the beam deflection model.\n- Initially requested bisection on the residual, then superseded this with: \"switch to a Newton iteration\" that must converge to a tolerance of `1e-11`.\n- Requested that the report be in SI units throughout (per lab colleague Jonas).\n- Requested that the preview be served on port `8765`.\n\n## 2. Key decisions and rationale\n- **Algorithm**: Switched from bisection to Newton iteration because bisection was abandoned by user request.\n- **Damping**: Implemented damped line search. Rationale: Undamped Newton diverges on stiff cases; Jacobian is cheap to form analytically.\n- **Singular Jacobian Handling**: Implemented fallback to pseudo-inverse when the Jacobian condition number blows up. Rationale: The solver encountered a `ZeroDivisionError` due to a singular Jacobian at iteration 7 in test cases.\n- **Environment Constraint**: Discovered that MKL multi-threading causes numerical drift (\"last digit drifts\"). Decision: Must set `MKL_NUM_THREADS=1` for reproducible results.\n\n## 3. Files and resources touched\n- `src/solver/newton.py` \u2014 Solver implementation. Edited twice: first to implement Newton/damped line search, second to add pseudo-inverse fallback for singular Jacobians. Current state: Functional, passes all tests.\n- `tests/test_newton.py` \u2014 Test suite. Current state: 24 passed, 0 failed.\n- `src/report/render.py` \u2014 Report rendering logic. Edited to ensure SI units are used throughout. Current state: Updated.\n- `data/beam_deflection_2026.csv` \u2014 Data source. Read to verify structure (48,211 rows). Not modified.\n\n## 4. Technical facts established\n- **Library Version**: `numpy` version `2.1.3` located at `C:\\anaconda3\\Lib\\site-packages`.\n- **Convergence Tolerance**: `1e-11`.\n- **Server Port**: `8765`.\n- **Environment Quirk**: On this machine, the solver only reproduces correctly if `MKL_NUM_THREADS=1` is set. Otherwise, numerical drift occurs.\n- **Data Structure**: `data/beam_deflection_2026.csv` contains columns likely representing index, position, and value (based on sample data).\n\n## 5. Errors and resolutions\n- **Error**: `ZeroDivisionError: singular Jacobian at iteration 7` during `pytest -q tests/test_newton.py`.\n  - **Resolution**: Added logic to detect singular Jacobian and fall back to pseudo-inverse calculation.\n- **Error**: Initial test run showed `F` (failures) for many cases before the singular Jacobian fix.\n  - **Resolution**: Resolved by the pseudo-inverse fallback; subsequent run showed `24 passed`.\n\n## 6. Work completed\n- Implemented Newton iteration solver in `src/solver/newton.py` with damping and pseudo-inverse fallback.\n- Verified solver correctness: All 24 tests in `tests/test_newton.py` pass.\n- Updated `src/report/render.py` to enforce SI units.\n- Launched preview server on port `8765` (`python -m report.serve --port 8765`) and confirmed assets are serving correctly.\n\n## 7. Outstanding work\n- Document the `damping` parameter in the docstring of the solver function (explicitly noted as outstanding by the assistant).\n\n## 8. Current state\nThe solver is implemented and tested. The report renderer has been updated for SI units. The preview server is running on port `8765`. The only remaining task is updating the docstring documentation.\n\n## 9. Next step\nUpdate the docstring in `src/solver/newton.py` to document the `damping` parameter.",
+  "B_ms": 4923.0,
+  "B_ok": true,
+  "B_count": 8.0,
+  "B_freed": 9580.0,
+  "B_ratio": 0.9594391587381071,
+  "B_hits": 5.0,
+  "B_missed": [],
+  "cost": 0.0014519799999999999,
+  "runs": 1,
+  "A_hits_spread": [
+   14,
+   14
+  ],
+  "B_hits_spread": [
+   5,
+   5
+  ],
+  "eu_us": false,
+  "region_note": "NO EU/US endpoint serves this model \u2014 it is available only via Alibaba. Requests would fail under the EU/US policy. Pick a different model or set the region policy to 'any'."
+ },
+ {
+  "model": "qwen/qwen3.5-flash-02-23",
+  "in_tokens": 33236,
+  "policy": "any",
+  "A_ms": 8152.0,
+  "A_hits": 14.0,
+  "A_missed": [
+   "magic constant"
+  ],
+  "A_out": 1235.0,
+  "A_sections": 9.0,
+  "A_text": "## 1. User intent\n- \"I need a root finder for the beam deflection model. Start with bisection on the residual.\" (Superseded)\n- \"Actually forget bisection \u2014 switch to a Newton iteration. It has to converge to a tolerance of 1e-11.\"\n- \"Jonas from the lab says the report has to be in SI units throughout.\"\n- \"Also please serve the preview on port 8765.\"\n- Implicit constraint: The solver must handle stiff cases where undamped Newton diverges; the Jacobian may become singular.\n\n## 2. Key decisions and rationale\n- **Algorithm choice**: Switched from bisection to **Newton iteration** because bisection was deemed insufficient or too slow, and Newton allows faster convergence to the required `1e-11` tolerance.\n- **Damping strategy**: Implemented a **damped line search** with analytical Jacobian formation. Rationale: Undamped Newton diverges on stiff cases; damping stabilizes convergence.\n- **Singular Jacobian handling**: Added fallback to **pseudo-inverse** when the condition number blows up (detected via `ZeroDivisionError: singular Jacobian`). Rationale: The standard linear solve fails at iteration 7 for specific test cases; pseudo-inverse allows continuation without crashing.\n- **Environment constraint**: Enforced `MKL_NUM_THREADS=1` during execution. Rationale: Multi-threading causes last-digit drift in results due to non-deterministic floating-point accumulation in MKL.\n- **Unit system**: Forced all report outputs to **SI units**. Rationale: Explicit requirement from \"Jonas from the lab\".\n- **Server configuration**: Configured the preview server to listen on **port 8765**. Rationale: Specific user request for the preview URL.\n\n## 3. Files and resources touched\n- `src/solver/newton.py` \u2014 Solver implementation file \u2014 Edited twice: first to implement damped Newton, second to add pseudo-inverse fallback for singular Jacobians \u2014 Current state: Functional, passes all 24 tests, handles singularities.\n- `tests/test_newton.py` \u2014 Test suite \u2014 Executed via pytest \u2014 Current state: All 24 tests passing (`test_case_0` through `test_case_23`).\n- `data/beam_deflection_2026.csv` \u2014 Input data file \u2014 Read to inspect structure (48,211 rows, columns: index, value, count) \u2014 Current state: Available for processing.\n- `src/report/render.py` \u2014 Report rendering logic \u2014 Edited 4 times to enforce SI unit conversion \u2014 Current state: Updated to render in SI units.\n- `report.serve` (module) \u2014 Server entry point \u2014 Executed via `python -m report.serve --port 8765` \u2014 Current state: Running successfully on `http://127.0.0.1:8765`.\n\n## 4. Technical facts established\n- **Environment**: Windows (`C:\\anaconda3\\Lib\\site-packages`).\n- **Library Version**: `numpy` version `2.1.3`.\n- **Solver Tolerance**: Target convergence tolerance is `1e-11`.\n- **Jacobian Issue**: Singular Jacobian occurs specifically at `iteration 7` for certain test cases (e.g., `test_singular_jacobian`).\n- **Numerical Quirk**: MKL multi-threading causes deterministic drift in the last digit; reproducibility requires `MKL_NUM_THREADS=1`.\n- **Data Schema**: `data/beam_deflection_2026.csv` contains 48,211 rows with columns likely representing `[index, x_value, y_value]` based on sample data.\n- **Server Port**: Preview server bound to `8765`.\n- **Test Results**: 24 passed, 0 failed after fixes.\n\n## 5. Errors and resolutions\n- **Error**: `ZeroDivisionError: singular Jacobian at iteration 7` (stack trace showed frames in `numpy/linalg/_linalg.py`).\n  - **Resolution**: Modified `src/solver/newton.py` to detect singularity and fall back to computing the solution using a **pseudo-inverse** instead of direct inversion. This allowed `test_singular_jacobian` to pass.\n- **Implicit Error**: Last-digit drift in results when running with default thread counts.\n  - **Resolution**: Identified as an MKL threading issue; resolved by setting environment variable `MKL_NUM_THREADS=1` before running the solver.\n\n## 6. Work completed\n- Implemented Newton iteration solver in `src/solver/newton.py` with damped line search.\n- Fixed singular Jacobian crash by implementing pseudo-inverse fallback.\n- Verified solver correctness: All 24 tests in `tests/test_newton.py` pass.\n- Confirmed numerical stability with `MKL_NUM_THREADS=1`.\n- Updated `src/report/render.py` to output values in **SI units**.\n- Launched preview server on `http://127.0.0.1:8765` serving assets successfully.\n- Inspected input data `data/beam_deflection_2026.csv`.\n\n## 7. Outstanding work\n- **Documentation**: Document the `damping` parameter in the docstring of the solver function (explicitly noted as outstanding).\n- **Verification**: Confirm that the SI unit conversion covers all edge cases in the report generation (assumed done but not explicitly verified against a generated PDF/HTML artifact in the log).\n- **Performance**: Ensure the solver performance remains acceptable with the added pseudo-inverse check (no explicit timing data provided yet).\n\n## 8. Current state\nThe Newton solver is fully functional and passing all tests. The report renderer has been updated to use SI units. The preview server is currently running on port 8765 and serving assets. The only remaining action item identified by the assistant is updating the docstring for the `damping` parameter.\n\n## 9. Next step\nUpdate the docstring in `src/solver/newton.py` to document the `damping` parameter.",
+  "B_ms": 3644.0,
+  "B_ok": true,
+  "B_count": 8.0,
+  "B_freed": 9578.0,
+  "B_ratio": 0.9592388582874312,
+  "B_hits": 5.0,
+  "B_missed": [],
+  "cost": 0.0032344649999999997,
+  "runs": 1,
+  "A_hits_spread": [
+   14,
+   14
+  ],
+  "B_hits_spread": [
+   5,
+   5
+  ],
+  "eu_us": false,
+  "region_note": "NO EU/US endpoint serves this model \u2014 it is available only via Alibaba. Requests would fail under the EU/US policy. Pick a different model or set the region policy to 'any'."
+ },
+ {
+  "model": "qwen/qwen3.8-flash",
+  "in_tokens": 33236,
+  "policy": "any",
+  "A_ms": 15236.0,
+  "A_hits": 14.0,
+  "A_missed": [
+   "magic constant"
+  ],
+  "A_out": 916.0,
+  "A_sections": 9.0,
+  "A_text": "## 1. User intent\n- **Original request:** \"I need a root finder for the beam deflection model. Start with bisection on the residual.\" (Superseded)\n- **Revised request:** \"Actually forget bisection \u2014 switch to a Newton iteration. It has to converge to a tolerance of 1e-11.\"\n- **Report constraints:** \"Jonas from the lab says the report has to be in SI units throughout.\"\n- **Preview constraint:** \"Also please serve the preview on port 8765.\"\n\n## 2. Key decisions and rationale\n- **Solver Algorithm:** Switched from Bisection to **Newton iteration** per user instruction.\n- **Stability Strategy:** Implemented a **damped line search** because the Jacobian is cheap to form analytically, and undamped Newton diverges on stiff cases.\n- **Singularity Handling:** When `test_singular_jacobian` failed due to a singular Jacobian at iteration 7, the assistant implemented a fallback to a **pseudo-inverse** when the condition number becomes too high. This resolved the failure.\n- **Report Rendering:** Modified `src/report/render.py` to enforce SI units.\n- **Environment Isolation:** Discovered that MKL threading causes numerical drift; established that `MKL_NUM_THREADS=1` is required for reproducible results.\n\n## 3. Files and resources touched\n- `src/solver/newton.py`:\n    - Initially contained bisection scaffolding.\n    - Edited to implement Newton iteration with damped line search.\n    - Edited again to add pseudo-inverse fallback for singular Jacobians.\n    - **Status:** All 24 tests passing.\n- `tests/test_newton.py`:\n    - Used to verify solver implementation.\n    - **Status:** Passing (`24 passed`).\n- `data/beam_deflection_2026.csv`:\n    - Read to inspect input data structure (columns: index, value, count).\n- `src/report/render.py`:\n    - Contained placeholder rendering logic.\n    - Edited (4 replacements) to ensure SI unit compliance.\n- `report.serve` (module):\n    - Executed via command line to start preview server.\n\n## 4. Technical facts established\n- **Environment:** Windows (`C:\\anaconda3\\...`), Python, NumPy 2.1.3.\n- **Numerical Stability Constraint:** The solver only reproduces exact results if `MKL_NUM_THREADS=1` is set. Otherwise, the last digit drifts due to multi-threading non-determinism in MKL.\n- **Tolerance Requirement:** Newton solver must converge to `1e-11`.\n- **Server Command:** `python -m report.serve --port 8765` successfully serves assets.\n- **Test Suite:** `pytest -q tests/test_newton.py` runs 24 test cases including edge cases like singular Jacobians.\n\n## 5. Errors and resolutions\n- **Error:** `ZeroDivisionError: singular Jacobian at iteration 7` during `test_singular_jacobian`.\n    - **Context:** Occurred after initial Newton implementation without singularity handling.\n    - **Resolution:** Added logic to detect high condition numbers and fall back to a pseudo-inverse calculation. Tests subsequently passed.\n- **Issue:** Numerical drift in results.\n    - **Context:** Observed when running `import mkl` check.\n    - **Resolution:** Identified `MKL_NUM_THREADS=1` as the fix for reproducibility.\n\n## 6. Work completed\n- Implemented Newton root finder with damped line search in `src/solver/newton.py`.\n- Added pseudo-inverse fallback for singular Jacobians.\n- Verified solver correctness: all 24 tests in `tests/test_newton.py` pass.\n- Updated `src/report/render.py` to output in SI units.\n- Started report preview server on port 8765 (`http://127.0.0.1:8765`).\n\n## 7. Outstanding work\n- Document the `damping` parameter in the docstring of the solver functions.\n\n## 8. Current state\nThe solver is fully functional and tested. The report is rendering in SI units and is being served on port 8765. The assistant just confirmed the server status and noted the remaining documentation task.\n\n## 9. Next step\nUpdate the docstrings in `src/solver/newton.py` to document the `damping` parameter used in the line search.",
+  "B_ms": 6082.0,
+  "B_ok": true,
+  "B_count": 8.0,
+  "B_freed": 9525.0,
+  "B_ratio": 0.9539308963445168,
+  "B_hits": 5.0,
+  "B_missed": [],
+  "cost": 0.00710167,
+  "runs": 1,
+  "A_hits_spread": [
+   14,
+   14
+  ],
+  "B_hits_spread": [
+   5,
+   5
+  ],
+  "eu_us": false,
+  "region_note": "NO EU/US endpoint serves this model \u2014 it is available only via Alibaba, Makora. Requests would fail under the EU/US policy. Pick a different model or set the region policy to 'any'."
+ }
+]

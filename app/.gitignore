@@ -1,0 +1,16 @@
+# secrets and local state
+.env
+api_key*.txt
+.ctxagent/
+.ctxagent-build/
+
+# python
+__pycache__/
+*.pyc
+.venv/
+.venv*/
+*.egg-info/
+
+# installer builds (packaging/build.ps1, packaging/build_linux.sh)
+/build/
+/dist/

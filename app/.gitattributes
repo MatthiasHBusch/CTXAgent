@@ -1,0 +1,7 @@
+# Vendored bundles are pinned by Subresource Integrity hashes in web/index.html.
+# Line-ending conversion (core.autocrlf=true on Windows) would change their bytes,
+# the browser would then refuse to run them, and Markdown would fall back to text.
+web/vendor/** -text
+# Linux packaging scripts run from a checkout or the tarball: keep LF on Windows too.
+packaging/*.sh text eol=lf
+packaging/linux/* text eol=lf

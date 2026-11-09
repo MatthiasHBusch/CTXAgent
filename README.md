@@ -29,7 +29,17 @@ Two findings, in one sentence each:
 
 ---
 
-## Install and run the GUI
+## Desktop app
+
+The agent lives on as **CTXAgent**, a desktop app for Windows and Linux. Download the
+installers from the release
+[**app-v0.1.0**](https://github.com/MatthiasHBusch/CTXAgent/releases/tag/app-v0.1.0); the
+source, the build scripts and the documentation are in [`app/`](app/), with installation
+steps in [`app/README.md`](app/README.md). The app is developed further than the version the
+paper evaluated, which the rest of this repository keeps frozen, and it is licensed
+separately (AGPL-3.0, see below).
+
+## Install and run the GUI (paper version)
 
 Requirements: Python 3.11+, an [OpenRouter](https://openrouter.ai/keys) key (or an Anthropic
 key for the direct route).
@@ -117,7 +127,8 @@ versions used in the paper (see [`bench/external/README.md`](bench/external/READ
 ## Layout
 
 ```
-ctxagent/        the agent: server, tools, compaction engine (ctxagent/compaction/), readers
+app/             the CTXAgent desktop app: source, installer builds, documentation (AGPL-3.0)
+ctxagent/        the agent as evaluated in the paper: server, tools, compaction engine (ctxagent/compaction/), readers
 web/             the GUI
 tests/           engine invariants, readers, UI smokes, model evaluation for the compaction model
 bench/           benchmark runner, task families, harness adapters, analysis; results/
@@ -126,9 +137,13 @@ assets/          the benchmark design figure
 
 ## License and citation
 
-Everything in this repository is released under the
-[Creative Commons Attribution 4.0 International](LICENSE) license (CC BY 4.0). If you use the
-agent, the benchmark or the results, please cite the paper (see [`CITATION.cff`](CITATION.cff)).
+Everything in this repository except the `app/` folder is released under the
+[Creative Commons Attribution 4.0 International](LICENSE) license (CC BY 4.0). The desktop app
+in [`app/`](app/) is released under the [GNU Affero General Public License v3.0](app/LICENSE)
+(AGPL-3.0), because its installers bundle AGPL and GPL components (PyMuPDF, and PyQt6 on
+Linux); [`app/THIRD_PARTY_LICENSES.md`](app/THIRD_PARTY_LICENSES.md) lists them. If you use the
+agent, the app, the benchmark or the results, please cite the paper (see
+[`CITATION.cff`](CITATION.cff)).
 
 The benchmark builds on the [Aider polyglot benchmark](https://github.com/Aider-AI/polyglot-benchmark)
 (Exercism exercises), [SciCode](https://github.com/scicode-bench/SciCode) and

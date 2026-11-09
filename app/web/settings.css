@@ -1,0 +1,142 @@
+/* CTXAgent settings menu + top-bar profile slot.
+   Uses only the shared theme tokens; every var() carries a literal fallback
+   (today's dark palette) so the menu also renders without a theme loaded. */
+
+.pi-settings[hidden], .pi-profile-menu[hidden] { display: none !important; }
+
+.pi-settings {
+  position: fixed; inset: 0; z-index: 200;
+  display: grid; place-items: center;
+  font-family: var(--font, system-ui, -apple-system, "Segoe UI", sans-serif);
+  color: var(--fg, #efece5);
+}
+.pi-settings-backdrop { position: absolute; inset: 0; background: rgba(0, 0, 0, .55); }
+.pi-settings-dialog {
+  position: relative; display: flex; flex-direction: column;
+  width: min(980px, calc(100vw - 32px)); height: min(720px, calc(100vh - 32px));
+  background: var(--bg-elev, #211f1b); border: 1px solid var(--border, #3a352e);
+  border-radius: var(--radius, 10px); box-shadow: 0 18px 60px rgba(0, 0, 0, .45); overflow: hidden;
+}
+.pi-settings-head {
+  display: flex; align-items: center; gap: 10px; padding: 12px 16px;
+  border-bottom: 1px solid var(--border, #3a352e);
+}
+.pi-settings-head h2 { margin: 0; font-size: 15px; font-weight: 600; flex: 1; }
+.pi-settings-body { display: flex; flex: 1; min-height: 0; }
+.pi-settings-nav {
+  display: flex; flex-direction: column; gap: 2px; padding: 10px 8px; min-width: 170px;
+  border-right: 1px solid var(--border, #3a352e); background: var(--bg, #1a1915);
+}
+.pi-settings-nav button {
+  text-align: left; padding: 8px 10px; border-radius: var(--radius, 6px); border: 0;
+  background: transparent; color: var(--fg-muted, #b8b1a4); font: inherit; font-size: 13px; cursor: pointer;
+}
+.pi-settings-nav button:hover { background: var(--panel, #2a2723); color: var(--fg, #efece5); }
+.pi-settings-nav button[aria-selected="true"] { background: var(--panel, #2a2723); color: var(--fg, #efece5); font-weight: 600; }
+.pi-settings-panel { flex: 1; min-width: 0; overflow-y: auto; padding: 16px 20px 28px; font-size: 13px; line-height: 1.5; }
+.pi-settings-panel h3 { margin: 0 0 4px; font-size: 14px; }
+.pi-settings-panel h4 { margin: 18px 0 6px; font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: var(--fg-muted, #b8b1a4); }
+.pi-settings-panel p { margin: 4px 0 10px; }
+.pi-muted { color: var(--fg-muted, #9a9386); }
+.pi-small { font-size: 12px; }
+.pi-settings code, .pi-mono { font-family: var(--font-mono, ui-monospace, Consolas, monospace); font-size: 12px; }
+.pi-settings code { background: var(--code-bg, #2a2723); padding: 1px 5px; border-radius: 4px; word-break: break-all; }
+
+/* buttons + inputs */
+.pi-btn {
+  display: inline-flex; align-items: center; gap: 6px; padding: 5px 11px; margin: 0;
+  border: 1px solid var(--border, #4a443b); border-radius: var(--radius, 6px);
+  background: var(--panel, #2a2723); color: var(--fg, #efece5); font: inherit; font-size: 12.5px; cursor: pointer;
+}
+.pi-btn:hover:not(:disabled) { border-color: var(--fg-muted, #837c70); }
+.pi-btn:disabled { opacity: .45; cursor: default; }
+.pi-btn.primary { background: var(--accent, #d97757); border-color: var(--accent, #d97757); color: var(--accent-fg, #1a1915); font-weight: 600; }
+.pi-btn.danger { color: var(--danger, #cf6b5d); }
+.pi-btn.danger.solid { background: var(--danger, #cf6b5d); border-color: var(--danger, #cf6b5d); color: var(--accent-fg, #1a1915); }
+.pi-icon-btn { border: 0; background: transparent; color: var(--fg-muted, #b8b1a4); font-size: 18px; line-height: 1; cursor: pointer; padding: 2px 6px; border-radius: var(--radius, 6px); }
+.pi-icon-btn:hover { color: var(--fg, #efece5); background: var(--panel, #2a2723); }
+.pi-settings :focus-visible, .pi-profile-slot :focus-visible { outline: 2px solid var(--accent, #d97757); outline-offset: 1px; }
+.pi-settings input[type="text"], .pi-settings input[type="password"], .pi-settings input[type="number"],
+.pi-settings select, .pi-settings textarea {
+  width: 100%; padding: 6px 8px; border: 1px solid var(--border, #3a352e); border-radius: var(--radius, 6px);
+  background: var(--bg, #1a1915); color: var(--fg, #efece5); font: inherit; font-size: 13px;
+}
+.pi-settings input[type="range"] { width: 100%; max-width: 420px; accent-color: var(--accent, #d97757); }
+.pi-settings textarea { min-height: 70px; resize: vertical; font-family: var(--font-mono, ui-monospace, Consolas, monospace); font-size: 12px; }
+.pi-settings input:disabled, .pi-settings select:disabled, .pi-settings textarea:disabled { opacity: .6; }
+.pi-row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.pi-row > .pi-grow { flex: 1; min-width: 180px; }
+.pi-actions { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 8px; }
+.pi-field { margin: 0 0 10px; }
+.pi-field > label, .pi-field > .pi-label { display: block; font-size: 12px; color: var(--fg-muted, #b8b1a4); margin-bottom: 3px; }
+.pi-field small { display: block; font-size: 11.5px; color: var(--fg-muted, #837c70); margin-top: 3px; }
+.pi-check { display: flex; gap: 8px; align-items: flex-start; margin: 4px 0 8px; font-size: 13px; }
+.pi-check input { margin-top: 3px; }
+.pi-grid2 { display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: 0 14px; }
+fieldset.pi-group { border: 1px solid var(--border, #3a352e); border-radius: var(--radius, 8px); margin: 0 0 12px; padding: 8px 12px 4px; }
+fieldset.pi-group > legend { padding: 0 6px; font-size: 12px; font-weight: 600; color: var(--fg-muted, #b8b1a4); }
+details.pi-more > summary { cursor: pointer; font-size: 12px; color: var(--fg-muted, #b8b1a4); margin: 4px 0 8px; }
+
+/* status lines, badges, confirmations */
+.pi-status { min-height: 18px; font-size: 12px; margin-top: 6px; color: var(--fg-muted, #b8b1a4); }
+.pi-status:empty { min-height: 0; margin-top: 0; }
+.pi-profile-menu .pi-inline:empty { padding: 0; }
+.pi-status.ok { color: var(--ok, #7fa66b); }
+.pi-status.err { color: var(--danger, #cf6b5d); }
+.pi-status.busy { color: var(--warn, #d4a24c); }
+.pi-badge { display: inline-block; padding: 0 7px; border-radius: 999px; font-size: 11px; line-height: 18px; border: 1px solid var(--border, #4a443b); color: var(--fg-muted, #b8b1a4); white-space: nowrap; }
+.pi-badge.ok { color: var(--ok, #7fa66b); border-color: var(--ok, #7fa66b); }
+.pi-badge.warn { color: var(--warn, #d4a24c); border-color: var(--warn, #d4a24c); }
+.pi-badge.accent { color: var(--accent, #d97757); border-color: var(--accent, #d97757); }
+.pi-confirm { margin-top: 8px; padding: 9px 11px; border: 1px solid var(--warn, #d4a24c); border-radius: var(--radius, 6px); background: var(--bg, #1a1915); }
+.pi-confirm p { margin: 0 0 7px; }
+.pi-alert { padding: 8px 11px; border-radius: var(--radius, 6px); border: 1px solid var(--danger, #cf6b5d); color: var(--danger, #cf6b5d); margin: 0 0 10px; white-space: pre-wrap; }
+.pi-note { padding: 8px 11px; border-radius: var(--radius, 6px); border: 1px solid var(--border, #3a352e); background: var(--bg, #1a1915); margin: 0 0 12px; }
+
+/* key + profile cards */
+.pi-card { border: 1px solid var(--border, #3a352e); border-radius: var(--radius, 8px); padding: 10px 12px; margin: 0 0 10px; background: var(--panel, #24221e); }
+.pi-card-head { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
+.pi-card-title { font-weight: 600; }
+.pi-card-head .pi-spacer { flex: 1; }
+.pi-masked { font-family: var(--font-mono, ui-monospace, Consolas, monospace); font-size: 12px; color: var(--fg, #efece5); }
+.pi-tools { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 0 12px; max-height: 260px; overflow-y: auto; padding: 4px 2px; }
+.pi-tools .pi-check { margin: 2px 0; font-size: 12px; }
+.pi-tools .pi-check .pi-mono { font-size: 11.5px; }
+.pi-export { margin-top: 10px; }
+
+/* top-bar profile slot */
+.pi-profile-slot { position: relative; display: inline-flex; align-items: center; margin-left: 4px; min-width: 0; max-width: 100%; font-family: var(--font, system-ui, sans-serif); }
+.pi-profile-btn {
+  display: inline-flex; align-items: center; gap: 6px; max-width: 340px; padding: 3px 10px;
+  border: 1px solid var(--border, #3a352e); border-radius: 999px; background: var(--panel, #2a2723);
+  color: var(--fg, #efece5); font: inherit; font-size: 12px; cursor: pointer; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.pi-profile-btn:hover { border-color: var(--fg-muted, #837c70); }
+.pi-profile-btn .pi-profile-label { color: var(--fg-muted, #9a9386); }
+.pi-profile-btn .pi-profile-name { overflow: hidden; text-overflow: ellipsis; }
+.pi-profile-btn .pi-profile-mod { color: var(--warn, #d4a24c); }
+.pi-profile-btn .pi-profile-missing { color: var(--danger, #cf6b5d); }
+.pi-profile-menu {
+  position: absolute; top: calc(100% + 6px); left: 0; z-index: 150; width: 340px; max-height: 70vh; overflow-y: auto;
+  padding: 8px; border: 1px solid var(--border, #3a352e); border-radius: var(--radius, 8px);
+  background: var(--bg-elev, #211f1b); color: var(--fg, #efece5); box-shadow: 0 12px 40px rgba(0, 0, 0, .4); font-size: 12.5px;
+}
+.pi-profile-menu .pi-menu-head { padding: 4px 6px 8px; border-bottom: 1px solid var(--border, #3a352e); margin-bottom: 6px; }
+.pi-profile-menu [role="menuitem"] {
+  display: block; width: 100%; text-align: left; padding: 6px 8px; border: 0; border-radius: var(--radius, 6px);
+  background: transparent; color: var(--fg, #efece5); font: inherit; cursor: pointer;
+}
+.pi-profile-menu [role="menuitem"]:hover:not(:disabled), .pi-profile-menu [role="menuitem"]:focus-visible { background: var(--panel, #2a2723); }
+.pi-profile-menu [role="menuitem"]:disabled { opacity: .45; cursor: default; }
+.pi-profile-menu .pi-inline { padding: 6px; }
+.pi-profile-menu input[type="text"], .pi-profile-menu select {
+  width: 100%; padding: 5px 7px; margin: 4px 0; border: 1px solid var(--border, #3a352e); border-radius: var(--radius, 6px);
+  background: var(--bg, #1a1915); color: var(--fg, #efece5); font: inherit;
+}
+.pi-banner-action { margin-left: 10px; }
+
+@media (max-width: 700px) {
+  .pi-settings-body { flex-direction: column; }
+  .pi-settings-nav { flex-direction: row; overflow-x: auto; min-width: 0; border-right: 0; border-bottom: 1px solid var(--border, #3a352e); }
+  .pi-profile-btn { max-width: 180px; }
+}

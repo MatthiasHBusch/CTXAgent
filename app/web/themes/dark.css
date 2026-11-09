@@ -1,0 +1,60 @@
+/* CTXAgent theme "dark": neutral graphite, periwinkle accent. */
+:root[data-theme="dark"] {
+  color-scheme: dark;
+
+  --bg: #16181d;
+  --bg-elev: #20242b;
+  --panel: #1b1e24;
+  --input-bg: #121418;
+  --bg-hover: #272b33;
+  --bg-active: #2f3440;
+
+  --fg: #e8eaef;
+  --fg-muted: #b0b7c4;
+  --fg-subtle: #959dac;
+
+  --border: #2e333c;
+  --border-strong: #3d434f;
+  --input-border: #687081;
+
+  --accent: #8f98ff;
+  --accent-hover: #a9b0ff;
+  --accent-fg: #11132a;
+  --accent-soft: #262b4b;
+  --focus: #a9b0ff;
+  --link: #a3abff;
+  --selection: #39407a;
+
+  --danger: #ff8177;
+  --danger-fg: #2a0705;
+  --warn: #e5b54a;
+  --ok: #5ccf78;
+  --info: #72b7ff;
+
+  --code-bg: #111317;
+  --code-fg: #e3e6ec;
+  --user-bg: #252a36;
+  --image-bg: #ffffff;
+
+  --frozen: #5d8fd6;
+  --hot: #e5875a;
+  --on-frozen: #08162a;
+  --on-hot: #2a1105;
+  --meter-track: #2b3039;
+
+  --overlay: rgba(0, 0, 0, 0.6);
+  --shadow: 0 14px 36px rgba(0, 0, 0, 0.5), 0 2px 6px rgba(0, 0, 0, 0.35);
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
+
+  --scrollbar-track: #1e2128;
+  --scrollbar-thumb: #3e4450;
+  --scrollbar-thumb-hover: #59606e;
+
+  --radius: 8px;
+  --radius-sm: 6px;
+  --radius-lg: 12px;
+  --focus-width: 2px;
+  --font: "Segoe UI Variable Text", "Segoe UI", system-ui, -apple-system, Inter, Roboto, sans-serif;
+  --font-reading: var(--font);
+  --font-mono: "Cascadia Code", "Cascadia Mono", ui-monospace, "JetBrains Mono", Consolas, monospace;
+}

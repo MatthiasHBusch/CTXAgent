@@ -1,0 +1,61 @@
+/* CTXAgent theme "paper": warm sepia stock, ink-brown text, rust accent and a
+   book serif for message prose. Controls keep the UI sans for legibility. */
+:root[data-theme="paper"] {
+  color-scheme: light;
+
+  --bg: #f6f0e1;
+  --bg-elev: #fcf8ef;
+  --panel: #ede4d0;
+  --input-bg: #fffdf7;
+  --bg-hover: #e5dac3;
+  --bg-active: #dccfb3;
+
+  --fg: #2e2418;
+  --fg-muted: #574836;
+  --fg-subtle: #685843;
+
+  --border: #d8caac;
+  --border-strong: #c2b08e;
+  --input-border: #8e7a5a;
+
+  --accent: #9a3b15;
+  --accent-hover: #7d2f0f;
+  --accent-fg: #fffaf0;
+  --accent-soft: #f1dfcb;
+  --focus: #b4521d;
+  --link: #8a3311;
+  --selection: #ebcfa8;
+
+  --danger: #a0221a;
+  --danger-fg: #fffaf0;
+  --warn: #7a5000;
+  --ok: #3c6a1c;
+  --info: #2a5b7a;
+
+  --code-bg: #efe6d1;
+  --code-fg: #2e2418;
+  --user-bg: #ebe0c9;
+  --image-bg: #fffdf7;
+
+  --frozen: #4a6f92;
+  --hot: #a9532a;
+  --on-frozen: #fffaf0;
+  --on-hot: #fffaf0;
+  --meter-track: #e2d6bd;
+
+  --overlay: rgba(46, 36, 24, 0.4);
+  --shadow: 0 12px 30px rgba(74, 52, 24, 0.18), 0 2px 6px rgba(74, 52, 24, 0.1);
+  --shadow-sm: 0 1px 2px rgba(74, 52, 24, 0.12);
+
+  --scrollbar-track: #e9dfca;
+  --scrollbar-thumb: #c4b291;
+  --scrollbar-thumb-hover: #a38f6b;
+
+  --radius: 6px;
+  --radius-sm: 4px;
+  --radius-lg: 10px;
+  --focus-width: 2px;
+  --font: "Segoe UI Variable Text", "Segoe UI", system-ui, -apple-system, Inter, Roboto, sans-serif;
+  --font-reading: "Iowan Old Style", "Palatino Linotype", Palatino, "Book Antiqua", Georgia, serif;
+  --font-mono: "Cascadia Mono", ui-monospace, Consolas, "Courier New", monospace;
+}

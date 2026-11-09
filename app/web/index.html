@@ -1,0 +1,686 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light dark">
+  <title>CTXAgent</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0.2' y1='0' x2='0.55' y2='1'%3E%3Cstop offset='0' stop-color='%232c3e8c'/%3E%3Cstop offset='1' stop-color='%231496a0'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect width='24' height='24' rx='6' fill='url(%23g)'/%3E%3Cg fill='none' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M8.25 6.6 4.83 12l3.42 5.4M15.75 6.6 19.17 12l-3.42 5.4' stroke='%23fff' stroke-width='2.44'/%3E%3Cpath d='M10.1 12h4.06M10.1 15.63h4.06' stroke='%23fff' stroke-width='1.92'/%3E%3Cpath d='M10.1 8.37h2.13' stroke='%23ffc857' stroke-width='1.92'/%3E%3C/g%3E%3C/svg%3E">
+  <!-- Applies the saved theme to <html data-theme> before anything paints. -->
+  <script src="/static/themes/themes.js"></script>
+  <link rel="stylesheet" href="/static/themes/light.css">
+  <link rel="stylesheet" href="/static/themes/dark.css">
+  <link rel="stylesheet" href="/static/themes/contrast.css">
+  <link rel="stylesheet" href="/static/themes/paper.css">
+  <link rel="stylesheet" href="/static/themes/nord.css">
+  <link rel="stylesheet" href="/static/themes/ember.css">
+  <link rel="stylesheet" href="/static/styles.css">
+  <link rel="stylesheet" href="/static/settings.css">
+</head>
+<body>
+<svg class="sprite" aria-hidden="true" focusable="false" xmlns="http://www.w3.org/2000/svg">
+  <!-- The CTXAgent mark (packaging/make_icon.py): the context window, a short amber summary line, two verbatim lines. -->
+  <symbol id="i-ctx" viewBox="0 0 24 24"><g fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M8.25 6.6 4.83 12l3.42 5.4M15.75 6.6 19.17 12l-3.42 5.4" stroke="currentColor" stroke-width="2.44"/><path d="M10.1 12h4.06M10.1 15.63h4.06" stroke="currentColor" stroke-width="1.92"/><path d="M10.1 8.37h2.13" stroke="#ffc857" stroke-width="1.92"/></g></symbol>
+  <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+  <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="6.5"/><path d="m20 20-4.4-4.4"/></symbol>
+  <symbol id="i-sidebar" viewBox="0 0 24 24"><rect x="3.5" y="4.5" width="17" height="15" rx="2.5"/><path d="M9.5 4.5v15"/></symbol>
+  <symbol id="i-panel" viewBox="0 0 24 24"><rect x="3.5" y="4.5" width="17" height="15" rx="2.5"/><path d="M14.5 4.5v15"/></symbol>
+  <symbol id="i-pencil" viewBox="0 0 24 24"><path d="M4.5 19.5h4l10-10a2.1 2.1 0 0 0-4-4l-10 10z"/><path d="m13.5 6.5 4 4"/></symbol>
+  <symbol id="i-trash" viewBox="0 0 24 24"><path d="M4.5 7h15M9.5 7V4.5h5V7M6.5 7l1 12.5h9l1-12.5M10 10.5v6M14 10.5v6"/></symbol>
+  <symbol id="i-close" viewBox="0 0 24 24"><path d="m6.5 6.5 11 11M17.5 6.5l-11 11"/></symbol>
+  <symbol id="i-send" viewBox="0 0 24 24"><path d="M12 19V5.5M6 11l6-6 6 6"/></symbol>
+  <symbol id="i-stop" viewBox="0 0 24 24"><rect x="7" y="7" width="10" height="10" rx="1.5" fill="currentColor" stroke="none"/></symbol>
+  <symbol id="i-compact" viewBox="0 0 24 24"><path d="M4 14h6v6M20 10h-6V4M14 10l6.5-6.5M3.5 20.5 10 14"/></symbol>
+  <symbol id="i-gear" viewBox="0 0 24 24"><path d="M18.86 9.23 21.45 10.33 21.45 13.67 18.86 14.77 18.81 14.89 19.86 17.51 17.51 19.86 14.89 18.81 14.77 18.86 13.67 21.45 10.33 21.45 9.23 18.86 9.11 18.81 6.49 19.86 4.14 17.51 5.19 14.89 5.14 14.77 2.55 13.67 2.55 10.33 5.14 9.23 5.19 9.11 4.14 6.49 6.49 4.14 9.11 5.19 9.23 5.14 10.33 2.55 13.67 2.55 14.77 5.14 14.89 5.19 17.51 4.14 19.86 6.49 18.81 9.11Z"/><circle cx="12" cy="12" r="3"/></symbol>
+  <symbol id="i-folder" viewBox="0 0 24 24"><path d="M3.5 7A1.5 1.5 0 0 1 5 5.5h4l2 2h8a1.5 1.5 0 0 1 1.5 1.5v8.5A1.5 1.5 0 0 1 19 19H5a1.5 1.5 0 0 1-1.5-1.5z"/></symbol>
+  <symbol id="i-gauge" viewBox="0 0 24 24"><path d="M4.5 16.5a7.5 7.5 0 1 1 15 0"/><path d="m12 16.5 3.5-4.5"/><path d="M3.5 19.5h17"/></symbol>
+  <symbol id="i-coins" viewBox="0 0 24 24"><ellipse cx="12" cy="6.5" rx="6.5" ry="2.5"/><path d="M5.5 6.5v5c0 1.4 2.9 2.5 6.5 2.5s6.5-1.1 6.5-2.5v-5"/><path d="M5.5 11.5v5c0 1.4 2.9 2.5 6.5 2.5s6.5-1.1 6.5-2.5v-5"/></symbol>
+  <symbol id="i-file" viewBox="0 0 24 24"><path d="M7 3.5h6.5L18 8v12.5H7z"/><path d="M13.5 3.5V8H18"/><path d="M9.5 12.5h5M9.5 16h5"/></symbol>
+  <symbol id="i-globe" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5"/><path d="M3.5 12h17"/><path d="M12 3.5c2.4 2.4 3.6 5.2 3.6 8.5s-1.2 6.1-3.6 8.5c-2.4-2.4-3.6-5.2-3.6-8.5s1.2-6.1 3.6-8.5z"/></symbol>
+  <symbol id="i-agents" viewBox="0 0 24 24"><circle cx="12" cy="5.5" r="2.2"/><circle cx="5.5" cy="18" r="2.2"/><circle cx="18.5" cy="18" r="2.2"/><path d="M12 7.7v3.8M12 11.5l-5.3 4.7M12 11.5l5.3 4.7"/></symbol>
+  <symbol id="i-toolbox" viewBox="0 0 24 24"><rect x="3.5" y="8" width="17" height="11" rx="1.5"/><path d="M9 8V5.5h6V8M3.5 12.5h17M10.5 12.5v2h3v-2"/></symbol>
+  <symbol id="i-sliders" viewBox="0 0 24 24"><path d="M4 7h9M17 7h3M4 17h3M11 17h9"/><circle cx="15" cy="7" r="2"/><circle cx="9" cy="17" r="2"/></symbol>
+  <symbol id="i-layers" viewBox="0 0 24 24"><path d="m12 4 8.5 4.5L12 13 3.5 8.5z"/><path d="m3.5 12.5 8.5 4.5 8.5-4.5"/><path d="m3.5 16.5 8.5 4.5 8.5-4.5"/></symbol>
+  <symbol id="i-key" viewBox="0 0 24 24"><circle cx="8" cy="15.5" r="4"/><path d="m11 12.5 8.5-8.5M16.5 7 19 9.5M14.5 9l2 2"/></symbol>
+  <symbol id="i-palette" viewBox="0 0 24 24"><path d="M12 3.5a8.5 8.5 0 1 0 0 17c1.2 0 1.8-.9 1.4-2l-.3-.8c-.4-1.1.4-2.2 1.6-2.2h1.8a4 4 0 0 0 4-4c0-4.4-3.8-8-8.5-8z"/><circle cx="7.5" cy="11" r="1"/><circle cx="10" cy="7.5" r="1"/><circle cx="14.5" cy="7.5" r="1"/></symbol>
+  <symbol id="i-image" viewBox="0 0 24 24"><rect x="3.5" y="4.5" width="17" height="15" rx="2"/><circle cx="9" cy="10" r="1.8"/><path d="m4 17.5 5-5 3.5 3.5 2.5-2.5 5 5"/></symbol>
+  <symbol id="i-up" viewBox="0 0 24 24"><path d="M12 19V6M6.5 11.5 12 6l5.5 5.5"/></symbol>
+</svg>
+
+<div id="app" class="panel-open">
+<script>
+  /* Restore panel/sidebar layout before the first paint (fresh profiles: wide
+     windows open the panel, narrow ones keep it closed). */
+  (function () {
+    var root = document.getElementById('app');
+    try {
+      var saved = localStorage.getItem('pi.panel.open');
+      if (saved === '0' || (saved === null && window.innerWidth < 1180)) root.classList.remove('panel-open');
+      var width = +localStorage.getItem('pi.panel.width');
+      if (width >= 300 && width <= 760) root.style.setProperty('--panel-w', width + 'px');
+      if (localStorage.getItem('pi.sidebar.open') === '0') root.classList.add('sidebar-closed');
+    } catch (e) {
+      if (window.innerWidth < 1180) root.classList.remove('panel-open');
+    }
+  })();
+</script>
+
+  <!-- ---------------- sidebar: chats ---------------- -->
+  <aside id="sidebar" aria-label="Chats">
+    <div class="brand">
+      <span class="logo" aria-hidden="true"><svg viewBox="0 0 24 24"><use href="#i-ctx"/></svg></span>
+      <span class="brand-name">CTXAgent</span>
+      <button type="button" class="chip warn" id="keystate" title="Open Settings to add an API key"></button>
+    </div>
+    <div class="sidebar-actions">
+      <button type="button" class="newchat" id="btn-new">
+        <svg class="ic" aria-hidden="true"><use href="#i-plus"/></svg><span>New chat</span>
+      </button>
+    </div>
+    <div class="chat-search">
+      <svg class="ic" aria-hidden="true"><use href="#i-search"/></svg>
+      <input id="chat-search" type="search" placeholder="Search chats" aria-label="Search chats" autocomplete="off" spellcheck="false">
+    </div>
+    <nav id="chatlist" aria-label="Chat list"></nav>
+    <section id="scratchpad" class="scratchpad" aria-label="Scratchpad">
+      <div class="sp-head">
+        <button type="button" class="sp-toggle" id="sp-toggle" aria-expanded="true" aria-controls="sp-body" title="Show or hide the scratchpad">
+          <svg class="ic" aria-hidden="true"><use href="#i-pencil"/></svg><span>Scratchpad</span>
+        </button>
+        <span class="sp-status" id="sp-status" aria-live="polite"></span>
+        <button type="button" class="iconbtn sm" id="sp-send" title="Send the scratchpad to the agent (Ctrl+Enter)" aria-label="Send the scratchpad to the agent">
+          <svg class="ic" aria-hidden="true"><use href="#i-send"/></svg>
+        </button>
+      </div>
+      <div class="sp-body" id="sp-body">
+        <textarea id="sp-text" spellcheck="true" aria-label="Scratchpad text"
+                  placeholder="Notes you and the agent both write in. Ctrl+Enter hands them to the agent."></textarea>
+      </div>
+    </section>
+    <div class="sidebar-foot">
+      <label class="theme-picker" for="theme-select">
+        <svg class="ic" aria-hidden="true"><use href="#i-palette"/></svg><span>Theme</span>
+        <select id="theme-select"></select>
+      </label>
+      <div class="foot-status" id="foot">—</div>
+    </div>
+  </aside>
+
+  <!-- ---------------- main: conversation ---------------- -->
+  <section id="main" aria-label="Conversation">
+    <header id="topbar">
+      <button type="button" class="iconbtn" id="btn-sidebar" title="Show or hide the chat list" aria-label="Toggle chat list" aria-controls="sidebar" aria-expanded="true">
+        <svg class="ic" aria-hidden="true"><use href="#i-sidebar"/></svg>
+      </button>
+      <div class="title-wrap">
+        <h1 class="title" id="chattitle">No chat selected</h1>
+        <button type="button" class="iconbtn sm" id="btn-rename" title="Rename chat" aria-label="Rename chat">
+          <svg class="ic" aria-hidden="true"><use href="#i-pencil"/></svg>
+        </button>
+      </div>
+      <button type="button" class="chip model-chip" id="modelpill" title="Model for this chat (opens Model settings)">—</button>
+      <span id="profile-slot"></span>
+      <button type="button" class="chip meter-chip" id="ctx-meter" title="Context: tokens in context / deep-compaction limit">
+        <span class="meter" id="meter" aria-hidden="true"><span class="seg-used" style="width:0%"></span></span>
+        <span id="tokpill">0 / 0</span>
+      </button>
+      <button type="button" class="chip" id="savedpill" title="Tokens removed by compaction (opens the Engine tab)">saved 0</button>
+      <button type="button" class="chip" id="costpill" title="This chat's reported cost (opens Usage)" hidden></button>
+      <span class="divider" aria-hidden="true"></span>
+      <button type="button" class="iconbtn" id="btn-compact" title="Compact now (force a deep pass)" aria-label="Compact now">
+        <svg class="ic" aria-hidden="true"><use href="#i-compact"/></svg>
+      </button>
+      <button type="button" class="iconbtn on" id="btn-panel" title="Show or hide the details panel" aria-label="Toggle details panel" aria-controls="panel" aria-expanded="true">
+        <svg class="ic" aria-hidden="true"><use href="#i-panel"/></svg>
+      </button>
+      <button type="button" class="iconbtn" id="open-settings" title="Settings" aria-label="Settings">
+        <svg class="ic" aria-hidden="true"><use href="#i-gear"/></svg>
+      </button>
+    </header>
+
+    <div id="backend-status" role="status"></div>
+    <div id="banner"></div>
+
+    <div id="messages">
+      <div class="wrap" id="msgwrap">
+        <div class="empty" id="empty">
+          <div class="empty-mark" aria-hidden="true"><svg viewBox="0 0 24 24"><use href="#i-ctx"/></svg></div>
+          <h2>A context-aware agent</h2>
+          <p>Loading your chats…</p>
+        </div>
+      </div>
+    </div>
+
+    <div id="composer">
+      <div class="wrap">
+        <div id="queue-chips" class="queue-chips" aria-live="polite" hidden></div>
+        <div class="composer-box">
+          <textarea id="input" rows="1" aria-label="Message" placeholder="Ask anything…"></textarea>
+          <div class="composer-row">
+            <button type="button" class="chip wd-btn" id="btn-wd" title="Choose the working directory for this chat">
+              <svg class="ic" aria-hidden="true"><use href="#i-folder"/></svg><span id="wdhint">set working directory</span>
+            </button>
+            <span class="spacer"></span>
+            <span class="hint composer-hint"><kbd>Enter</kbd> send · <kbd>Shift</kbd>+<kbd>Enter</kbd> new line</span>
+            <button type="button" class="send" id="btn-send" title="Send" aria-label="Send">
+              <svg class="ic" aria-hidden="true"><use href="#i-send"/></svg>
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ---------------- right panel: details ---------------- -->
+  <aside id="panel" aria-label="Chat details">
+    <div class="panel-body">
+      <div id="panel-resizer" role="separator" aria-orientation="vertical" aria-label="Resize details panel"
+           tabindex="0" aria-valuemin="300" aria-valuemax="760" aria-valuenow="400" title="Drag or use arrow keys to resize; double-click to reset"></div>
+      <div class="panel-head">
+        <h2 id="panel-title">Context window</h2>
+        <span class="spacer"></span>
+        <button type="button" class="iconbtn sm" id="btn-panel-close" title="Collapse panel" aria-label="Collapse panel">
+          <svg class="ic" aria-hidden="true"><use href="#i-close"/></svg>
+        </button>
+      </div>
+
+      <!-- CONTEXT -->
+      <div class="tabpane active" id="pane-context" role="tabpanel" aria-labelledby="tab-context">
+        <section class="sect">
+          <h3 class="sect-title">Window occupancy</h3>
+          <div class="bigbar" id="bigbar"></div>
+          <div class="legend">
+            <span><i class="sw sw-used"></i>in context</span>
+            <span><i class="sw sw-free"></i>free until the limit</span>
+            <span><i class="sw sw-over"></i>above the limit</span>
+          </div>
+          <div class="kvlist">
+            <div class="kv"><span class="k">In context</span><span class="v" id="s-total">—</span></div>
+            <div class="kv"><span class="k" id="s-limit-k">Deep compaction at</span><span class="v" id="s-limit">—</span></div>
+            <div class="kv"><span class="k">Context window</span><span class="v" id="s-window">—</span></div>
+            <div class="kv"><span class="k">History</span><span class="v" id="s-history">—</span></div>
+            <div class="kv"><span class="k">Open documents, pages, canvas</span><span class="v" id="s-live">—</span></div>
+            <div class="kv"><span class="k">Tool definitions</span><span class="v" id="s-tools">—</span></div>
+            <div class="kv"><span class="k">Uncompacted would be</span><span class="v" id="s-orig">—</span></div>
+            <div class="kv"><span class="k">Saved by compaction</span><span class="v good" id="s-saved">—</span></div>
+          </div>
+          <p class="usage-note" id="s-ctx-note"></p>
+          <div class="kvlist">
+            <div class="kv"><span class="k">Document tool catalog</span><span class="v" id="s-doc-tools">—</span></div>
+            <div class="kv"><span class="k">Review hint cadence</span><span class="v" id="s-cadence">?</span></div>
+            <div class="kv"><span class="k">Deep target remaining</span><span class="v" id="s-tail">—</span></div>
+          </div>
+        </section>
+        <section class="sect">
+          <h3 class="sect-title">Segments <span class="count" id="segcount"></span></h3>
+          <p class="usage-note">Newest first. Click a segment to inspect, pin or restore it.</p>
+          <div class="seglist" id="seglist"></div>
+        </section>
+      </div>
+
+      <!-- USAGE -->
+      <div class="tabpane" id="pane-usage" role="tabpanel" aria-labelledby="tab-usage">
+        <section class="sect">
+          <div class="stat-grid">
+            <div class="stat"><span class="stat-k">This chat (reported)</span><span class="stat-v" id="u-cost">—</span></div>
+            <div class="stat"><span class="stat-k">Agents (separate)</span><span class="stat-v" id="u-agents-cost" title="Unique descendant chats, including their summaries/follow-ups. Not included in the parent reported total.">?</span></div>
+            <div class="stat"><span class="stat-k">Requests</span><span class="stat-v" id="u-req">0</span></div>
+            <div class="stat"><span class="stat-k">Cache hit rate (lifetime)</span><span class="stat-v" id="u-chr">—</span></div>
+          </div>
+        </section>
+        <section class="sect">
+          <h3 class="sect-title">Provider usage</h3>
+          <div class="kvlist">
+            <div class="kv"><span class="k">Prompt tokens</span><span class="v" id="u-pt">0</span></div>
+            <div class="kv"><span class="k">Completion tokens</span><span class="v" id="u-ct">0</span></div>
+            <div class="kv"><span class="k">Cache reads</span><span class="v good" id="u-cr">0</span></div>
+            <div class="kv"><span class="k">Cache writes (tokens)</span><span class="v" id="u-cw">—</span></div>
+            <div class="kv"><span class="k">Cache hit (last / last 10)</span><span class="v" id="u-recent">—</span></div>
+            <div class="kv"><span class="k">Last request service tier</span><span class="v" id="u-tier">?</span></div>
+          </div>
+        </section>
+        <section class="sect">
+          <h3 class="sect-title">Cost allocation estimates</h3>
+          <div class="kvlist">
+            <div class="kv"><span class="k">Input (uncached)</span><span class="v" id="u-input-cost">—</span></div>
+            <div class="kv"><span class="k">Cache read</span><span class="v" id="u-read-cost">—</span></div>
+            <div class="kv"><span class="k">Cache write</span><span class="v" id="u-write-cost">—</span></div>
+            <div class="kv"><span class="k">Output (excluding reasoning)</span><span class="v" id="u-output-cost">—</span></div>
+            <div class="kv"><span class="k">Reasoning</span><span class="v" id="u-reason-cost">—</span></div>
+            <div class="kv"><span class="k">Completion (split unavailable)</span><span class="v" id="u-unsplit-cost">—</span></div>
+            <div class="kv"><span class="k">Historical unallocated</span><span class="v" id="u-legacy-cost">—</span></div>
+            <div class="kv"><span class="k">Summary model (in total)</span><span class="v" id="u-summary-cost">—</span></div>
+          </div>
+          <p id="u-allocation-note" class="usage-note"></p>
+          <details class="disclosure"><summary>Latest cache diagnostics</summary><pre id="u-cache-diagnostic" class="usage-diagnostic"></pre></details>
+        </section>
+      </div>
+
+      <!-- DOCUMENTS -->
+      <div class="tabpane" id="pane-documents" role="tabpanel" aria-labelledby="tab-documents">
+        <section class="sect" id="document-workspace">
+          <p class="lead">Full files or selected sections, refreshed from disk before each request. Close a view to remove its live content; history remains separate.</p>
+          <fieldset class="group">
+            <legend>Open a view</legend>
+            <div class="field"><label for="doc-path">File path</label><input id="doc-path" type="text" spellcheck="false" placeholder="Absolute path or relative to a working directory"></div>
+            <div class="field">
+              <label for="doc-select">Sections <span class="opt">optional, one selector per line</span></label>
+              <textarea id="doc-select" rows="2" spellcheck="false" placeholder="Blank = full text; otherwise name, dotted path, or L20-80"></textarea>
+            </div>
+            <div class="field">
+              <label for="doc-budget">View token limit</label>
+              <div class="input-unit"><input id="doc-budget" type="number" min="1" max="20000" value="8000"><span class="unit">tokens</span></div>
+            </div>
+            <div class="btnrow">
+              <button type="button" class="btn primary" id="btn-doc-open">Open / replace view</button>
+              <button type="button" class="btn" id="btn-doc-refresh">Refresh</button>
+              <button type="button" class="btn" id="btn-doc-enable">Enable agent document tools</button>
+            </div>
+          </fieldset>
+          <p class="usage-note status-line" id="doc-status" role="status"></p>
+          <h3 class="sect-title">Open views <span class="count" id="doc-tokens"></span></h3>
+          <div id="doc-list"></div>
+        </section>
+      </div>
+
+      <!-- BROWSER -->
+      <div class="tabpane" id="pane-browser" role="tabpanel" aria-labelledby="tab-browser">
+        <section class="sect" id="browser-workspace">
+          <p class="lead">Cached pages and screenshots are live context, not chat history. Closing a tab archives a summary made by the summary model (billed). Notes stay outside history; sources are untrusted evidence.</p>
+          <fieldset class="group">
+            <legend>Open a page</legend>
+            <div class="field"><label for="browser-url">Public page URL</label><input id="browser-url" type="text" placeholder="https://…" spellcheck="false" maxlength="8000" data-browser-tool="browser_open"></div>
+            <label class="switchrow"><input id="browser-js" type="checkbox" data-browser-tool="browser_open"><span class="lbl">Render JavaScript on open<small>Isolated browser; no login cookies.</small></span></label>
+            <div class="field">
+              <label for="browser-view-budget">View token limit</label>
+              <div class="input-unit"><input id="browser-view-budget" type="number" min="100" max="12000" value="4000" data-browser-tool="browser_open"><span class="unit">tokens</span></div>
+            </div>
+            <div class="browser-actions btnrow">
+              <button type="button" class="btn primary" id="btn-browser-open" data-browser-tool="browser_open">Open page</button>
+              <button type="button" class="btn" id="btn-browser-refresh">Refresh tabs</button>
+              <button type="button" class="btn" id="btn-browser-enable">Enable browser tools</button>
+            </div>
+          </fieldset>
+          <p class="usage-note status-line" id="browser-status" role="status" aria-live="polite"></p>
+          <p class="usage-note status-line" id="browser-lock"></p>
+          <h3 class="sect-title">Live tabs <span class="count" id="browser-budget"></span></h3>
+          <div id="browser-tabs"></div>
+          <details id="browser-archive" class="disclosure"><summary>Archived research notes <span class="count" id="browser-note-count"></span></summary>
+            <div class="browser-actions btnrow">
+              <button type="button" class="btn" id="btn-browser-notes" data-browser-tool="browser_notes" data-browser-read="true">List notes</button>
+              <button type="button" class="btn" id="btn-browser-notes-prev" data-browser-tool="browser_notes" data-browser-read="true">Previous</button>
+              <button type="button" class="btn" id="btn-browser-notes-next" data-browser-tool="browser_notes" data-browser-read="true">Next</button>
+            </div>
+            <p class="usage-note" id="browser-notes-range"></p>
+            <div id="browser-notes-list"></div>
+            <div id="browser-note-view"></div>
+          </details>
+        </section>
+      </div>
+
+      <!-- CANVAS -->
+      <div class="tabpane" id="pane-canvas" role="tabpanel" aria-labelledby="tab-canvas">
+        <section class="sect" id="canvas-pane">
+          <p class="lead">What the agent shows and draws for you. The current version is in each of its requests as one image at the end (about 1–2k tokens); older versions stay here.</p>
+          <p class="usage-note" id="canvas-empty">No canvas is open. Ask the agent to show something on the canvas, or to open an image there.</p>
+          <div id="canvas-live" hidden>
+            <div class="canvas-stage">
+              <button type="button" class="canvas-frame" id="canvas-frame" title="Enlarge">
+                <img id="canvas-img" alt="Canvas">
+                <span class="canvas-focus" id="canvas-focus" hidden></span>
+              </button>
+            </div>
+            <p class="usage-note status-line" id="canvas-meta" role="status"></p>
+            <div class="btnrow">
+              <a class="btn" id="canvas-download" download>Download PNG</a>
+              <button type="button" class="btn" id="btn-canvas-current" hidden>Show current</button>
+              <button type="button" class="btn" id="btn-canvas-close">Close canvas</button>
+            </div>
+            <h3 class="sect-title">Versions <span class="count" id="canvas-count"></span></h3>
+            <div class="canvas-history" id="canvas-history"></div>
+          </div>
+        </section>
+      </div>
+
+      <!-- AGENTS -->
+      <div class="tabpane" id="pane-agents" role="tabpanel" aria-labelledby="tab-agents">
+        <section class="sect" id="delegated-agents">
+          <p class="lead">Workers run in independent contexts with separately billed usage. Settings inherit; task history is passed explicitly. Stopping the parent does not cancel workers.</p>
+          <div class="btnrow">
+            <button type="button" class="btn primary" id="btn-agent-start">Delegate task</button>
+            <button type="button" class="btn" id="btn-agents-refresh">Refresh agents</button>
+            <button type="button" class="btn" id="btn-agent-enable">Enable delegation + browsing</button>
+          </div>
+          <p class="usage-note status-line" id="agent-status" role="status"></p>
+          <div id="agent-list"></div>
+        </section>
+      </div>
+
+      <!-- TOOLS -->
+      <div class="tabpane" id="pane-tools" role="tabpanel" aria-labelledby="tab-tools">
+        <section class="sect">
+          <h3 class="sect-title">Working directories</h3>
+          <div id="wdlist"></div>
+          <button type="button" class="btn" id="btn-addwd"><svg class="ic" aria-hidden="true"><use href="#i-plus"/></svg>Add directory</button>
+          <p class="help">File and shell tools are confined to these paths.</p>
+        </section>
+        <section class="sect">
+          <h3 class="sect-title">Enabled tools <span class="count" id="toolcount"></span></h3>
+          <div class="tool-filter">
+            <svg class="ic" aria-hidden="true"><use href="#i-search"/></svg>
+            <input id="tool-filter" type="search" placeholder="Filter tools" aria-label="Filter tools" autocomplete="off" spellcheck="false">
+          </div>
+          <div id="toollist"></div>
+        </section>
+      </div>
+
+      <!-- MODEL & CHAT SETTINGS -->
+      <div class="tabpane" id="pane-settings" role="tabpanel" aria-labelledby="tab-settings">
+        <p class="lead">These settings belong to this chat. Save to apply them; a new chat copies the selected chat's saved settings.</p>
+        <fieldset class="group">
+          <legend>Model</legend>
+          <div class="field">
+            <label for="f-provider">API key / provider</label>
+            <select id="f-provider">
+              <option value="openrouter">OpenRouter (OPENROUTER_API_KEY)</option>
+              <option value="anthropic">Anthropic direct (ANTHROPIC_API_KEY)</option>
+            </select>
+            <small class="help" id="f-provider-note">Switching maps the chat and compaction models to their counterparts. Save settings to apply.</small>
+          </div>
+          <div class="field">
+            <label id="f-model-label" for="f-model">Model id (OpenRouter)</label>
+            <input type="text" id="f-model" list="modellist" spellcheck="false" autocomplete="off">
+            <datalist id="modellist"></datalist>
+            <datalist id="modellist-anthropic"></datalist>
+            <div id="model-check" class="provcheck"></div>
+            <div id="model-price" class="pricebox"></div>
+          </div>
+          <div class="row2">
+            <div class="field">
+              <label for="f-ctx">Context window</label>
+              <div class="input-unit"><input type="number" id="f-ctx" step="1000"><span class="unit">tokens</span></div>
+            </div>
+            <div class="field">
+              <label for="f-maxout">Max output</label>
+              <div class="input-unit"><input type="number" id="f-maxout" min="0" step="500" placeholder="0"><span class="unit">tokens</span></div>
+              <small class="help">0 = unlimited: the model's maximum (128k for current Claude models), as far as the context window has room.</small>
+            </div>
+          </div>
+          <div class="row2">
+            <div class="field">
+              <label for="f-temp">Temperature <span id="f-temp-v" class="val"></span></label>
+              <input type="range" id="f-temp" min="0" max="2" step="0.05">
+            </div>
+            <div class="field">
+              <label for="f-reasoning">Reasoning effort</label>
+              <select id="f-reasoning">
+                <option value="xhigh">xhigh</option>
+                <option value="high">high</option>
+                <option value="medium">medium</option>
+                <option value="low">low</option>
+                <option value="off">off</option>
+                <option value="default">provider default</option>
+              </select>
+            </div>
+          </div>
+        </fieldset>
+
+        <fieldset class="group">
+          <legend>Pricing &amp; service tier</legend>
+          <div class="field">
+            <label for="f-model-pricing">Chat model tier</label>
+            <select id="f-model-pricing">
+              <option value="standard">Standard (normal routing)</option>
+              <option value="prefer_flex">Try Flex; allow standard-price fallback</option>
+              <option value="flex_only">Flex only; stop if unavailable</option>
+            </select>
+            <small class="help">Flex can be slower or capacity-limited. Often 50% lower tariffs, not a guaranteed discount.</small>
+          </div>
+          <button type="button" class="btn sm" id="model-flex-refresh">Refresh Flex availability (no charge)</button>
+          <div id="model-flex" class="provcheck"></div>
+        </fieldset>
+
+        <fieldset class="group">
+          <legend>Compaction &amp; summary model</legend>
+          <div class="field">
+            <label for="f-summodel">Summary model</label>
+            <input type="text" id="f-summodel" list="modellist" spellcheck="false" autocomplete="off" placeholder="Same as chat model">
+            <small class="help">Used for context compaction <em>and</em> for <code>summarize_file(mode="llm")</code>. Empty = the chat model, which reuses the chat's cached context and its pricing tier. Name a model here only to compact with a different one.</small>
+            <div id="sum-check" class="provcheck"></div>
+            <div id="sum-price" class="pricebox"></div>
+          </div>
+          <div class="field">
+            <label for="f-sumreasoning">Reasoning effort</label>
+            <select id="f-sumreasoning">
+              <option value="high">high</option>
+              <option value="medium">medium</option>
+              <option value="low">low</option>
+              <option value="off">off</option>
+              <option value="default">provider default</option>
+            </select>
+          </div>
+          <div class="field">
+            <label for="f-sum-pricing">Service tier</label>
+            <select id="f-sum-pricing">
+              <option value="standard">Standard (normal routing)</option>
+              <option value="prefer_flex">Try Flex; allow standard-price fallback</option>
+              <option value="flex_only">Flex only; stop if unavailable</option>
+            </select>
+            <small class="help">Flex can be slower or capacity-limited. Often 50% lower tariffs, not a guaranteed discount.</small>
+          </div>
+          <button type="button" class="btn sm" id="sum-flex-refresh">Refresh Flex availability (no charge)</button>
+          <div id="sum-flex" class="provcheck"></div>
+        </fieldset>
+
+        <fieldset class="group">
+          <legend>Agent loop &amp; delegation</legend>
+          <div class="field">
+            <label for="f-maxiter">Tool iterations per turn</label>
+            <div class="input-unit"><input type="number" id="f-maxiter" min="0" step="1"><span class="unit">0 = unlimited</span></div>
+            <small class="help">Unlimited runs until finished, an error, or Stop. Long runs can incur API costs.</small>
+          </div>
+          <div class="row2">
+            <div class="field">
+              <label for="f-agent-parallel">Parallel child agents</label>
+              <input id="f-agent-parallel" type="number" min="1" max="8" value="4">
+              <small class="help">Limit for the root chat.</small>
+            </div>
+            <div class="field">
+              <label for="f-agent-depth">Delegation depth</label>
+              <input id="f-agent-depth" type="number" min="1" max="4" value="2">
+              <small class="help">Levels of sub-workers.</small>
+            </div>
+          </div>
+          <div class="field">
+            <label for="f-agent-timeout">Child timeout, including queue</label>
+            <div class="input-unit"><input id="f-agent-timeout" type="number" min="1" max="604800" value="3600"><span class="unit">seconds</span></div>
+          </div>
+        </fieldset>
+
+        <fieldset class="group">
+          <legend>Provider region</legend>
+          <div class="field">
+            <label for="f-provpolicy">Allowed providers</label>
+            <select id="f-provpolicy">
+              <option value="eu_us">EU / US providers only</option>
+              <option value="any">Any provider (no restriction)</option>
+            </select>
+            <small class="help">Pins every request to providers headquartered <em>and</em> hosted in the EU/EEA/UK/CH/US/CA, with fallbacks limited to the allowlist. A model's origin and its serving location are different things: a Chinese model served from a US datacentre is allowed, and a request that cannot be served in-region fails loudly rather than silently routing elsewhere.</small>
+            <small class="help" id="prov-count"></small>
+          </div>
+        </fieldset>
+
+        <fieldset class="group">
+          <legend>System prompt additions</legend>
+          <div class="field">
+            <label for="f-sys" class="sr-only">System prompt additions</label>
+            <textarea id="f-sys" rows="5" placeholder="Project conventions, house style, constraints…"></textarea>
+          </div>
+        </fieldset>
+
+        <div class="pane-actions">
+          <span class="save-state" id="cfg-state" role="status" aria-live="polite"></span>
+          <button type="button" class="btn" id="btn-defaults" title="Use this chat's settings, Engine and Tools as the defaults for new chats">Use as new-chat defaults</button>
+        </div>
+      </div>
+
+      <!-- COMPACTION ENGINE -->
+      <div class="tabpane" id="pane-compaction" role="tabpanel" aria-labelledby="tab-compaction">
+        <fieldset class="group">
+          <legend>Cache-stable split</legend>
+          <label class="switchrow">
+            <input type="checkbox" id="c-enabled">
+            <span class="lbl">Compaction enabled<small>Turn off to measure the unmanaged baseline.</small></span>
+          </label>
+          <label class="switchrow">
+            <input type="checkbox" id="c-selfsteer">
+            <span class="lbl">Self-steered context management<small>The model manages its own context with compact_context and curate_context, guided by a short section in the system prompt; the engine hints when a review is due. Deep compaction stays automatic as the safety net. Off: the engine manages the context with deep compaction alone, and the model has neither tool.</small></span>
+          </label>
+          <div class="field">
+            <label for="c-hot">Recent working tail: target <b id="c-hot-v"></b> tokens</label>
+            <div class="input-unit"><input type="number" id="c-hot" min="0" step="1"><span class="unit">tokens</span></div>
+            <small class="help" id="c-hot-state"></small>
+          </div>
+          <div class="row2">
+            <div class="field">
+              <label for="c-protobs">Protected observations</label>
+              <input type="number" id="c-protobs" min="0" max="30">
+            </div>
+            <div class="field">
+              <label for="c-protusr">Protected user turns</label>
+              <input type="number" id="c-protusr" min="0" max="10">
+            </div>
+          </div>
+        </fieldset>
+
+        <fieldset class="group">
+          <legend>Review &amp; result delivery</legend>
+          <label class="switchrow">
+            <input type="checkbox" id="c-review">
+            <span class="lbl">Review before freezing<small>Fresh batches, recent observations and expiring pins stay out of the frozen (cached) prefix. Self-steered, the prefix advances only when the model curates or compacts. Already-frozen history is not thawed.</small></span>
+          </label>
+          <div class="field">
+            <label for="c-delivery">Initial tool-result cap</label>
+            <div class="input-unit"><input type="number" id="c-delivery" min="0" max="100000" step="1000"><span class="unit">tokens · 0 = off</span></div>
+            <small class="help">Oversized text gets an explicitly incomplete head/tail excerpt and exact recall handle. Important middle content can be omitted. Recalls, errors, pins and native images are exempt.</small>
+          </div>
+          <p class="help">Frozen history stays byte-identical, so the provider keeps it cached. The working tail may exceed its target while a review is pending or fresh evidence is protected. Paid summaries run only at the deep-compaction trigger or when you compact by hand.</p>
+        </fieldset>
+
+        <fieldset class="group">
+          <legend>Deep compaction</legend>
+          <label class="switchrow">
+            <input type="checkbox" id="c-deep">
+            <span class="lbl">Enabled<small>The engine's automatic compaction: one summary call replaces the older history, the originals stay recallable. Rare, rebuilds the cached prefix.</small></span>
+          </label>
+          <div class="field">
+            <label for="c-trig">Trigger at <b id="c-trig-v" class="val"></b> of the window</label>
+            <input type="range" id="c-trig" min="0.4" max="0.95" step="0.01">
+            <small class="help">A share of the context window in provider tokens (0.9 of 700k: 630k). It never comes later than the window minus the requested output and 13k of headroom.</small>
+          </div>
+          <div class="field">
+            <label for="c-target">Target fraction remaining after deep compaction</label>
+            <div class="input-unit"><input type="number" id="c-target" step="0.01" min="0.01" max="0.5"><span class="unit">0.10 = 10%</span></div>
+            <small class="help" id="c-tailexpl"></small>
+          </div>
+          <div class="row2">
+            <div class="field">
+              <label for="c-cool">Cooldown</label>
+              <div class="input-unit"><input type="number" id="c-cool" min="0" max="50"><span class="unit">turns</span></div>
+            </div>
+            <div class="field">
+              <label for="c-mingain">Minimum gain</label>
+              <div class="input-unit"><input type="number" id="c-mingain" step="1000"><span class="unit">tokens</span></div>
+            </div>
+          </div>
+          <div class="field">
+            <label for="c-summodel">Summariser model</label>
+            <input type="text" id="c-summodel" list="modellist" spellcheck="false" autocomplete="off" placeholder="Same as chat model">
+          </div>
+          <label class="switchrow">
+            <input type="checkbox" id="c-share">
+            <span class="lbl">Summarise on the cached prefix<small>When the summariser is the chat model, re-send the cached conversation with the instruction appended instead of a fresh prompt (50 to 79 % cheaper per summary).</small></span>
+          </label>
+        </fieldset>
+
+        <fieldset class="group" id="c-selfgroup">
+          <legend>Self-steered context management</legend>
+          <small class="help">Applies while self-steered context management is on (top of this tab). Deep compaction stays automatic.</small>
+          <div class="field">
+            <label for="c-interval">Review hint every N completed tool batches</label>
+            <div class="input-unit"><input type="number" id="c-interval" min="1" max="100" step="1"><span class="unit">batches</span></div>
+            <small class="help">A batch may contain several calls. The hint is one line appended to the newest tool result.</small>
+          </div>
+          <div class="row2">
+            <div class="field">
+              <label for="c-newtokens">Earlier hint: new tokens</label>
+              <div class="input-unit"><input type="number" id="c-newtokens" min="1000" step="1000"><span class="unit">tokens</span></div>
+            </div>
+            <div class="field">
+              <label for="c-pressure">Earlier hint: pressure</label>
+              <div class="input-unit"><input type="number" id="c-pressure" min="0.1" max="0.95" step="0.05"><span class="unit">of window</span></div>
+            </div>
+          </div>
+          <div class="field">
+            <label for="c-guidance">System-prompt guidance</label>
+            <select id="c-guidance">
+              <option value="default">Standard</option>
+              <option value="live">Benchmarked text (frozen benchmark arm)</option>
+            </select>
+          </div>
+        </fieldset>
+
+        <div class="pane-actions">
+          <span class="save-state" id="cmp-state" role="status" aria-live="polite"></span>
+        </div>
+
+        <section class="sect">
+          <h3 class="sect-title">Compaction log</h3>
+          <div id="cmplog"></div>
+        </section>
+      </div>
+    </div>
+
+    <div class="tabs" role="tablist" aria-label="Chat details" aria-orientation="vertical">
+      <button type="button" class="tab active" data-tab="context" id="tab-context" role="tab" aria-selected="true" aria-controls="pane-context" title="Context window">
+        <svg class="ic" aria-hidden="true"><use href="#i-gauge"/></svg><span>Context</span>
+      </button>
+      <button type="button" class="tab" data-tab="usage" id="tab-usage" role="tab" aria-selected="false" aria-controls="pane-usage" tabindex="-1" title="Usage and cost">
+        <svg class="ic" aria-hidden="true"><use href="#i-coins"/></svg><span>Usage</span>
+      </button>
+      <button type="button" class="tab" data-tab="documents" id="tab-documents" role="tab" aria-selected="false" aria-controls="pane-documents" tabindex="-1" title="Live documents">
+        <svg class="ic" aria-hidden="true"><use href="#i-file"/></svg><span>Docs</span>
+      </button>
+      <button type="button" class="tab" data-tab="browser" id="tab-browser" role="tab" aria-selected="false" aria-controls="pane-browser" tabindex="-1" title="Browser research">
+        <svg class="ic" aria-hidden="true"><use href="#i-globe"/></svg><span>Browser</span>
+      </button>
+      <button type="button" class="tab" data-tab="canvas" id="tab-canvas" role="tab" aria-selected="false" aria-controls="pane-canvas" tabindex="-1" title="Live canvas">
+        <svg class="ic" aria-hidden="true"><use href="#i-image"/></svg><span>Canvas</span>
+      </button>
+      <button type="button" class="tab" data-tab="agents" id="tab-agents" role="tab" aria-selected="false" aria-controls="pane-agents" tabindex="-1" title="Delegated agents">
+        <svg class="ic" aria-hidden="true"><use href="#i-agents"/></svg><span>Agents</span>
+      </button>
+      <span class="tabs-sep" aria-hidden="true"></span>
+      <button type="button" class="tab" data-tab="tools" id="tab-tools" role="tab" aria-selected="false" aria-controls="pane-tools" tabindex="-1" title="Tools and working directories">
+        <svg class="ic" aria-hidden="true"><use href="#i-toolbox"/></svg><span>Tools</span>
+      </button>
+      <button type="button" class="tab" data-tab="settings" id="tab-settings" role="tab" aria-selected="false" aria-controls="pane-settings" tabindex="-1" title="Model and chat settings">
+        <svg class="ic" aria-hidden="true"><use href="#i-sliders"/></svg><span>Model</span>
+      </button>
+      <button type="button" class="tab" data-tab="compaction" id="tab-compaction" role="tab" aria-selected="false" aria-controls="pane-compaction" tabindex="-1" title="Compaction engine">
+        <svg class="ic" aria-hidden="true"><use href="#i-layers"/></svg><span>Engine</span>
+      </button>
+    </div>
+  </aside>
+</div>
+<div id="scrim" aria-hidden="true"></div>
+
+<div id="modalhost"></div>
+<div id="toasts"></div>
+<script src="/static/vendor/markdown-it-15.0.2.min.js" integrity="sha256-Y1lyuYUijor58BQ2R8aGFrejuwn2lG5+SlLkPc9ee+U="></script>
+<script src="/static/markdown.js"></script>
+<script src="/static/app.js"></script>
+<!-- App-level Settings modal (API keys, profiles, appearance); optional, a 404 is harmless. -->
+<script src="/static/settings.js" defer></script>
+</body>
+</html>

@@ -1,0 +1,75 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ctxagent"
+dynamic = ["version"]
+description = "CTXAgent: a local desktop agent built around context compaction (Python package: ctxagent)"
+readme = "README.md"
+requires-python = ">=3.11"
+authors = [{ name = "Matthias Busch" }]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Operating System :: Microsoft :: Windows",
+    "Environment :: Win32 (MS Windows)",
+    "Environment :: Web Environment",
+]
+# Mirrors requirements.txt. The document readers are probed at call time, so
+# each one is optional in practice; they are installed by default all the same.
+dependencies = [
+    "fastapi>=0.110",
+    "uvicorn[standard]>=0.27",
+    "httpx>=0.27",
+    "pydantic>=2.5",
+    "tiktoken>=0.6",
+    "jsonschema>=4.18",
+    "keyring>=24",
+    "anthropic>=1.17,<2",
+    "pymupdf>=1.24",
+    "python-docx>=1.1",
+    "lxml>=4.9",
+    "python-pptx>=0.6",
+    "openpyxl>=3.1",
+    "pandas>=2.0",
+    "pyyaml>=6.0",
+    "beautifulsoup4>=4.12",
+    "chardet>=5.0",
+    "pillow>=10.3,<11",
+    "psutil>=5.9.8",
+    "mcp>=1.2,<2",          # mcp 2.x renamed FastMCP (mcp_server.py uses the 1.x API)
+]
+
+[project.optional-dependencies]
+# native window (Edge WebView2 on Windows); without it the app uses the browser
+desktop = ["pywebview>=5.3"]
+# JavaScript page rendering for the browsing tools (not shipped in the installer)
+browser = ["playwright>=1.62,<2"]
+# what packaging/build.ps1 installs on top (versions pinned in packaging/constraints.txt)
+build = ["pywebview>=5.3", "pyinstaller>=6.10"]
+dev = ["playwright>=1.62,<2"]
+
+[project.scripts]
+ctxagent = "ctxagent.desktop:serve_main"   # server only, like `python -m ctxagent`
+ctxagent-cli = "ctxagent.desktop:main"     # console variant of the app (all options)
+
+[project.gui-scripts]
+ctxagent-app = "ctxagent.desktop:main"     # the desktop app, no console window
+
+[project.urls]
+Repository = "https://github.com/MatthiasHBusch/CTXAgent"
+
+[tool.setuptools]
+# The static UI lives at <repo>/web; in a wheel it ships as ctxagent/web
+# (paths.app_root() finds either).
+packages = ["ctxagent", "ctxagent.compaction", "ctxagent.readers", "ctxagent.web"]
+include-package-data = false
+
+[tool.setuptools.package-dir]
+"ctxagent.web" = "web"
+
+[tool.setuptools.package-data]
+"ctxagent.web" = ["*.html", "*.css", "*.js", "**/*"]
+
+[tool.setuptools.dynamic]
+version = { attr = "ctxagent.version.__version__" }

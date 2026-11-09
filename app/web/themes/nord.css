@@ -1,0 +1,61 @@
+/* CTXAgent theme "nord": cool arctic night. Polar-night grounds, snow-storm
+   text, frost accent; aurora hues lightened where Nord's own fail contrast. */
+:root[data-theme="nord"] {
+  color-scheme: dark;
+
+  --bg: #2e3440;
+  --bg-elev: #3b4252;
+  --panel: #292e39;
+  --input-bg: #252a33;
+  --bg-hover: #3b4252;
+  --bg-active: #434c5e;
+
+  --fg: #eceff4;
+  --fg-muted: #d8dee9;
+  --fg-subtle: #b4bdcc;
+
+  --border: #3f4757;
+  --border-strong: #4c566a;
+  --input-border: #6d7a91;
+
+  --accent: #88c0d0;
+  --accent-hover: #8fbcbb;
+  --accent-fg: #242933;
+  --accent-soft: #364554;
+  --focus: #88c0d0;
+  --link: #8fd2e3;
+  --selection: #4c566a;
+
+  --danger: #f2a0a7;
+  --danger-fg: #242933;
+  --warn: #ebcb8b;
+  --ok: #a3be8c;
+  --info: #9fbbdb;
+
+  --code-bg: #252a33;
+  --code-fg: #e5e9f0;
+  --user-bg: #3b4252;
+  --image-bg: #ffffff;
+
+  --frozen: #81a1c1;
+  --hot: #d08770;
+  --on-frozen: #1b2230;
+  --on-hot: #2a1710;
+  --meter-track: #434c5e;
+
+  --overlay: rgba(20, 23, 30, 0.62);
+  --shadow: 0 14px 36px rgba(12, 14, 20, 0.45), 0 2px 6px rgba(12, 14, 20, 0.3);
+  --shadow-sm: 0 1px 2px rgba(12, 14, 20, 0.35);
+
+  --scrollbar-track: #2b303b;
+  --scrollbar-thumb: #4c566a;
+  --scrollbar-thumb-hover: #616e88;
+
+  --radius: 8px;
+  --radius-sm: 6px;
+  --radius-lg: 12px;
+  --focus-width: 2px;
+  --font: "Segoe UI Variable Text", "Segoe UI", system-ui, -apple-system, Inter, Roboto, sans-serif;
+  --font-reading: var(--font);
+  --font-mono: "Cascadia Code", "Cascadia Mono", ui-monospace, "JetBrains Mono", Consolas, monospace;
+}

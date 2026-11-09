@@ -1,0 +1,61 @@
+/* CTXAgent theme "ember": the original ctxagent look. Warm charcoal with a
+   terracotta accent; muted text lifted to meet AA contrast. */
+:root[data-theme="ember"] {
+  color-scheme: dark;
+
+  --bg: #1a1915;
+  --bg-elev: #26241f;
+  --panel: #211f1b;
+  --input-bg: #171612;
+  --bg-hover: #2f2c26;
+  --bg-active: #38342d;
+
+  --fg: #efece5;
+  --fg-muted: #bdb6a9;
+  --fg-subtle: #a19a8c;
+
+  --border: #3a352e;
+  --border-strong: #4a443b;
+  --input-border: #7a7263;
+
+  --accent: #e0805f;
+  --accent-hover: #ea9273;
+  --accent-fg: #1a1915;
+  --accent-soft: #3b2a22;
+  --focus: #e9967a;
+  --link: #ec9a7c;
+  --selection: #5a3a2c;
+
+  --danger: #ec8576;
+  --danger-fg: #1a1915;
+  --warn: #dcab55;
+  --ok: #8fb67b;
+  --info: #86a6cf;
+
+  --code-bg: #151410;
+  --code-fg: #e9e5dc;
+  --user-bg: #2c2924;
+  --image-bg: #ffffff;
+
+  --frozen: #5b7fa8;
+  --hot: #d97757;
+  --on-frozen: #050b12;
+  --on-hot: #2a1105;
+  --meter-track: #343029;
+
+  --overlay: rgba(0, 0, 0, 0.6);
+  --shadow: 0 14px 36px rgba(0, 0, 0, 0.5), 0 2px 6px rgba(0, 0, 0, 0.35);
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
+
+  --scrollbar-track: #24221e;
+  --scrollbar-thumb: #4a443b;
+  --scrollbar-thumb-hover: #6b6356;
+
+  --radius: 9px;
+  --radius-sm: 6px;
+  --radius-lg: 13px;
+  --focus-width: 2px;
+  --font: system-ui, -apple-system, "Segoe UI", Inter, sans-serif;
+  --font-reading: var(--font);
+  --font-mono: ui-monospace, "Cascadia Mono", "JetBrains Mono", Consolas, monospace;
+}

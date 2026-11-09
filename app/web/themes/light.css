@@ -1,0 +1,62 @@
+/* CTXAgent theme "light": neutral and crisp, indigo accent.
+   Also the fallback when <html> carries no data-theme (scripts blocked). */
+:root:not([data-theme]),
+:root[data-theme="light"] {
+  color-scheme: light;
+
+  --bg: #ffffff;
+  --bg-elev: #ffffff;
+  --panel: #f6f7f9;
+  --input-bg: #ffffff;
+  --bg-hover: #eceef2;
+  --bg-active: #e3e6ee;
+
+  --fg: #1b1f27;
+  --fg-muted: #485162;
+  --fg-subtle: #5d6676;
+
+  --border: #dfe2e8;
+  --border-strong: #c5cad3;
+  --input-border: #858d9c;
+
+  --accent: #4338ca;
+  --accent-hover: #3730a3;
+  --accent-fg: #ffffff;
+  --accent-soft: #eceefe;
+  --focus: #4f46e5;
+  --link: #3c35c2;
+  --selection: #c9cefa;
+
+  --danger: #b42318;
+  --danger-fg: #ffffff;
+  --warn: #8a5300;
+  --ok: #1d7139;
+  --info: #1c5ea6;
+
+  --code-bg: #f4f5f8;
+  --code-fg: #1b1f27;
+  --user-bg: #eef1f6;
+  --image-bg: #ffffff;
+
+  --frozen: #3d6db3;
+  --hot: #b9542a;
+  --on-frozen: #ffffff;
+  --on-hot: #ffffff;
+  --meter-track: #e6e9ef;
+
+  --overlay: rgba(15, 18, 25, 0.42);
+  --shadow: 0 12px 32px rgba(15, 18, 25, 0.14), 0 2px 6px rgba(15, 18, 25, 0.08);
+  --shadow-sm: 0 1px 2px rgba(15, 18, 25, 0.08);
+
+  --scrollbar-track: #eef0f3;
+  --scrollbar-thumb: #b9bfca;
+  --scrollbar-thumb-hover: #8f97a6;
+
+  --radius: 8px;
+  --radius-sm: 6px;
+  --radius-lg: 12px;
+  --focus-width: 2px;
+  --font: "Segoe UI Variable Text", "Segoe UI", system-ui, -apple-system, Inter, Roboto, sans-serif;
+  --font-reading: var(--font);
+  --font-mono: "Cascadia Code", "Cascadia Mono", ui-monospace, "JetBrains Mono", Consolas, monospace;
+}

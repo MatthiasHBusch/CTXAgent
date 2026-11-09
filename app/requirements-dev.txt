@@ -1,0 +1,2 @@
+# Optional headless UI smoke test; uses installed Microsoft Edge on this Windows host.
+playwright>=1.62,<2

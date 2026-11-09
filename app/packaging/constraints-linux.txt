@@ -1,0 +1,16 @@
+# Linux-only pins for packaging/build_linux.sh, on top of constraints.txt (both
+# are passed to pip). The window is pywebview's Qt backend (pywebview[qt]:
+# PyQt6 + Qt WebEngine wheels, no system Qt needed); keyring reaches the Secret
+# Service (GNOME Keyring, KWallet) over D-Bus through SecretStorage/jeepney.
+PyQt6==6.12.0
+PyQt6-Qt6==6.12.0
+PyQt6-sip==13.13.0
+PyQt6-WebEngine==6.140.0
+PyQt6-WebEngine-Qt6==6.140.0
+QtPy==2.4.3
+keyring==25.7.0
+SecretStorage==3.5.0
+jeepney==0.9.0
+cryptography==50.0.2
+# uvicorn[standard] adds uvloop on Linux only
+uvloop==0.23.0
