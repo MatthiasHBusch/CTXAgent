@@ -155,20 +155,6 @@ class IntegrityTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn('configured limit of 2', next(e['error'] for e in events if e['type'] == 'error'))
         self.assertFalse(session.turn_lock.locked())
 
-    async def test_hot_zone_reports_actual_boundary_before_and_after_freeze(self):
-        c = build_conv(n_reads=12, big_lines=150)
-        cfg = CompactionConfig(rewrite_interval_batches=1, hot_zone_tokens=10000)
-        engine = CompactionEngine('budget-test', cfg, fake_complete)
-        before = engine.stats(c, 200000)
-        self.assertEqual(before['hot_zone_budget'], 10000)
-        # Inspection must not claim a prospective boundary is already frozen.
-        self.assertEqual(before['frozen_tokens'], 0)
-        self.assertEqual(before['hot_tokens'], c.total_tokens() - 3)
-        await engine.run(c, 200000)
-        after = engine.stats(c, 200000)
-        self.assertLessEqual(after['hot_tokens'], 10000)
-        self.assertEqual(CompactionConfig.from_dict(cfg.to_dict()).hot_zone_tokens, 10000)
-
     async def test_concurrent_turn_rejected(self):
         session = make_session()
         stream = session.run_turn('first')
@@ -276,7 +262,7 @@ class VisualTests(unittest.IsolatedAsyncioTestCase):
             c.new('user', K_MEDIA, f'image {i}', images=images)
         first = c.segments[0]
         before = first.tokens(), first.to_message()
-        engine = CompactionEngine('media-test', CompactionConfig(deep_enabled=False, hot_zone_tokens=0), fake_complete)
+        engine = CompactionEngine('media-test', CompactionConfig(deep_enabled=False), fake_complete)
         await engine.run(c, 1000000)
         self.assertEqual((first.tokens(), first.to_message()), before)
         self.assertEqual(first.state, 'original')

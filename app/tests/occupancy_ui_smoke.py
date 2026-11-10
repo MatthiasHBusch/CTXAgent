@@ -24,7 +24,8 @@ stats = {'total': total, 'original': 150_000, 'saved': 30_000, 'effective_window
          'tool_tokens': round(15_000 * cal), 'original_tokens': round(150_000 * cal), 'saved_tokens': round(30_000 * cal),
          'rewrite_interval_batches': 10, 'document_catalog_tokens': 0}
 SYSTEM = 'You are ctxagent.'
-chat = {'id': 'occ', 'title': 'Game chat', 'config': cfg, 'usage': {}, 'stats': stats,
+chat = {'id': 'occ', 'title': 'Game chat', 'config': cfg, 'stats': stats,
+        'usage': {'by_source': {'keepalive': {'requests': 3, 'cost': 0.0612}}},
         'segments': [{'id': 's0', 'seq': 0, 'kind': 'system', 'role': 'system', 'body': SYSTEM, 'state': 'original'}],
         'compaction_log': [], 'running': False, 'queued': []}
 patches, state = [], {'running': False}
@@ -57,7 +58,7 @@ with sync_playwright() as playwright:
             return route.fulfill(json={'config': new, 'pending': state['running'], 'stats': stats, 'system': system})
         data = {'/api/health': health, '/api/chats': [{'id': 'occ', 'title': chat['title']}],
                 '/api/chats/occ': chat, '/api/models': {'models': []},
-                '/api/chats/occ/context': {'usage': {}, 'stats': stats, 'segments': [], 'compaction_log': [],
+                '/api/chats/occ/context': {'usage': chat['usage'], 'stats': stats, 'segments': [], 'compaction_log': [],
                                            'config': chat['config']['compaction']},
                 '/api/providers': {'allowed': [], 'total': 0},
                 '/api/providers/check': {'ok': True, 'message': 'Synthetic test'}}.get(path, {})
@@ -106,6 +107,17 @@ with sync_playwright() as playwright:
     page.press('#c-cool', 'Tab')
     page.wait_for_function("document.getElementById('cmp-state').textContent.includes('next model request')")
     assert patches[-1]['compaction']['deep_cooldown_turns'] == 8
+    # The token-threshold hint is gone; the cache keep-alive is a switch that saves on change.
+    assert page.locator('#c-newtokens').count() == 0
+    assert page.locator('#c-keepalive').is_checked()
+    n = len(patches)
+    page.locator('#c-keepalive').uncheck()
+    for _ in range(50):
+        if len(patches) > n:
+            break
+        page.wait_for_timeout(100)
+    assert patches[-1]['compaction']['cache_keepalive'] is False, patches[-1]
+    assert '(3)' in page.locator('#u-keepalive-cost').text_content(), page.locator('#u-keepalive-cost').text_content()
     assert not errors, errors
     print('occupancy UI smoke passed: provider-token bar against the deep limit, settings saved on change')
     browser.close()

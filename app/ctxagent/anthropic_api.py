@@ -9,7 +9,7 @@ Things that differ from the OpenRouter path and are easy to get wrong:
 
 * **Caching is opt-in.** The Anthropic API caches nothing without
   `cache_control`. `cache_policy.apply` already marks the system prompt and the
-  frozen prefix; on top of that we send top-level automatic caching, which puts
+  history rungs; on top of that we send top-level automatic caching, which puts
   a moving breakpoint on the last block. Within a tool loop every iteration then
   reads the previous iteration's prefix instead of re-billing the hot zone.
 * **Preserved thinking.** Opus 5.5 / Sonnet 5.5 / Fable 5.1 bind each thinking
@@ -28,6 +28,7 @@ from __future__ import annotations
 
 import json
 import re
+import time
 from typing import Any, AsyncIterator
 
 import httpx
@@ -392,9 +393,10 @@ def _describe(exc) -> str:
 
 
 def build_request(*, model: str, messages: list[dict], tools: list[dict] | None, max_tokens: int,
-                  reasoning_effort: str, frozen_msg_count: int, previous_cache_anchor: int | None,
-                  cache_ttl: str, response_format: dict | None = None, apply_cache: bool = True,
-                  uncached_tail: int = 0) -> dict:
+                  reasoning_effort: str, cache_ttl: str, cache_anchors=(),
+                  response_format: dict | None = None, apply_cache: bool = True,
+                  uncached_tail: int = 0, frozen_msg_count: int = 0,
+                  previous_cache_anchor: int | None = None) -> dict:
     """The full `beta.messages.create` kwargs. Pure; unit-testable offline.
 
     With `uncached_tail` (the live canvas at the end) the moving tail mark is an explicit
@@ -421,7 +423,8 @@ def build_request(*, model: str, messages: list[dict], tools: list[dict] | None,
     explicit_tail = uncached_tail > 0 or native_changes
     anchors: list[int] = []
     if apply_cache:
-        messages, anchors = cache_policy.apply(messages, model, frozen_msg_count, previous_cache_anchor, cache_ttl,
+        rungs = cache_policy.legacy_anchors(cache_anchors or None, frozen_msg_count, previous_cache_anchor)
+        messages, anchors = cache_policy.apply(messages, model, rungs, cache_ttl,
                                                tail=explicit_tail, trailer=uncached_tail)
     system, converted = convert_messages(expand_messages(messages), keep_thinking=keep_thinking,
                                          deferred=deferred if native_changes else None)
@@ -463,6 +466,17 @@ def build_request(*, model: str, messages: list[dict], tools: list[dict] | None,
     return kwargs
 
 
+async def keep_warm(captured: dict) -> dict:
+    """Re-send a captured request with `max_tokens: 0`: the provider reads the cached prompt,
+    which restarts the cache entries' 5-minute timer, and generates nothing. Not streamed
+    (`max_tokens: 0` rejects streaming). Returns the usage payload (cost included)."""
+    kwargs = dict(captured["kwargs"])
+    kwargs["max_tokens"] = 0
+    resp = await _get_client().beta.messages.create(**kwargs)
+    usage = resp.usage.model_dump() if hasattr(resp.usage, "model_dump") else dict(resp.usage or {})
+    return usage_payload(kwargs["model"], usage)
+
+
 def _rejected_feature(exc: Exception) -> str | None:
     """Which optional feature a 400 complains about, if any (then retry without it)."""
     text = str(getattr(exc, "message", "") or exc).lower()
@@ -479,9 +493,12 @@ def _rejected_feature(exc: Exception) -> str | None:
 async def stream_chat(*, model: str, messages: list[dict], tools: list[dict] | None = None,
                       max_tokens: int = 8000, frozen_msg_count: int = 0, reasoning_effort: str = "high",
                       previous_cache_anchor: int | None = None, cache_ttl: str = "5m",
+                      cache_anchors: list[int] | None = None,
                       pricing_mode: str = "standard", response_format: dict | None = None,
-                      apply_cache: bool = True, uncached_tail: int = 0, **_ignored) -> AsyncIterator[dict[str, Any]]:
-    """Same event protocol as `llm.stream_chat`."""
+                      apply_cache: bool = True, uncached_tail: int = 0, capture: dict | None = None,
+                      **_ignored) -> AsyncIterator[dict[str, Any]]:
+    """Same event protocol as `llm.stream_chat`. `capture` (a dict) receives the exact request
+    and its start time, for `keep_warm`."""
     import anthropic
 
     if pricing_mode == "flex_only":
@@ -496,10 +513,15 @@ async def stream_chat(*, model: str, messages: list[dict], tools: list[dict] | N
             kwargs = build_request(model=model, messages=messages, tools=tools, max_tokens=max_tokens,
                                    reasoning_effort=reasoning_effort, frozen_msg_count=frozen_msg_count,
                                    previous_cache_anchor=previous_cache_anchor, cache_ttl=cache_ttl,
+                                   cache_anchors=cache_anchors,
                                    response_format=response_format, apply_cache=apply_cache,
                                    uncached_tail=uncached_tail)
             try:
+                started = time.time()
                 stream = await client.beta.messages.create(stream=True, **kwargs)
+                if capture is not None:
+                    capture.clear()
+                    capture.update({"route": "anthropic", "kwargs": kwargs, "started": started, "model": model})
                 break
             except anthropic.BadRequestError as exc:
                 feature = _rejected_feature(exc)

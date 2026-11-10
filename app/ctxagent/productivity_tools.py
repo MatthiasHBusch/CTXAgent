@@ -85,49 +85,40 @@ def register(registry, ToolSpec, ToolResult, ToolError, params):
         return result(await asyncio.to_thread(jobs.cancel, job_id, owner(ctx)))
 
     definitions = [
-        ToolSpec('view_image', 'Inspect an image visually: sends native image pixels to the model and a UI preview. '
-                 'Normalizes orientation and first frame. Requires vision-capable model. PNG/JPEG/WebP etc.; not SVG. '
+        ToolSpec('view_image', 'Show an image to the model, with a preview in the UI. Raster formats such as PNG, JPEG, WebP (first frame); not SVG. '
                  'canvas=true opens it on the live canvas instead (shown to the user, kept current, drawable).',
                  params({'path': {'type': 'string'}, 'max_side': {'type': 'integer', 'minimum': 256,
                          'maximum': 2400, 'description': 'Longest side limit; default 1600.'},
                          'canvas': {'type': 'boolean', 'description': 'Open on the live canvas (see canvas_open).'}},
                         ['path']),
                  view_image, 'visual', needs_ctx=True),
-        ToolSpec('render_pdf', 'Render selected PDF pages and send native images to the model for layout/figure/equation inspection. '
-                 'Use read_document for text. Maximum 6 pages per call, page numbers start at 1. Requires vision-capable model.',
+        ToolSpec('render_pdf', 'Render PDF pages as images for the model, up to 6 per call.',
                  params({'path': {'type': 'string'}, 'pages': {'type': 'array', 'items': {'type': 'integer'},
                          'minItems': 1, 'maxItems': 6, 'description': '1-based pages; default [1].'},
                          'dpi': {'type': 'integer', 'minimum': 72, 'maximum': 200,
                                  'description': 'Default 120; reduce for large-format pages.'}}, ['path']),
                  render_pdf, 'visual'),
-        ToolSpec('start_job', 'Start a long-running PowerShell (Windows) or bash command and return immediately with a job_id. '
-                 'Logs persist; jobs survive chat disconnect and server restart. Inspect with job_status/read_job_log; cancel explicitly. '
-                 'Runs with user privileges, NOT sandboxed. Non-interactive; no stdin. Use it for commands expected to run longer than about a minute (long builds, simulations, servers); for tests and scripts that finish quickly use run_command, whose result you get in the same step',
+        ToolSpec('start_job', 'Start a shell command (PowerShell on Windows, bash elsewhere) detached and return a job_id at once. The job survives chat Stop, disconnect and server restart; its logs are kept. stdin is closed.',
                  params({'command': {'type': 'string'}, 'cwd': {'type': 'string'},
                          'timeout': {'type': 'integer', 'minimum': 1, 'maximum': 604800,
                                      'description': 'Seconds, default 3600. Timeout terminates process tree.'}}, ['command']),
                  start_job, 'jobs', dangerous=True, needs_ctx=True),
-        ToolSpec('job_status', 'Inspect a managed job: state, exit code, elapsed timestamps, bounded log sizes and truncation. '
-                 'A lost worker means execution is uncertain; inspect side effects before rerunning.',
+        ToolSpec('job_status', "State, exit code, timestamps and log sizes of a job. State 'lost' means it is unknown how far the command ran.",
                  params({'job_id': {'type': 'string'}}, ['job_id']), job_status, 'jobs', needs_ctx=True),
-        ToolSpec('job_wait', 'Block until a managed job finishes or `seconds` elapse (default 120, max 600), then return its '
-                 'state, exit code and the tail of stdout/stderr. Use this instead of sleeping in run_command or polling job_status.',
+        ToolSpec('job_wait', 'Wait until a job finishes or `seconds` pass (default 120), then return state, exit code and the tail of stdout/stderr.',
                  params({'job_id': {'type': 'string'},
                          'seconds': {'type': 'integer', 'minimum': 1, 'maximum': 600},
                          'tail_bytes': {'type': 'integer', 'minimum': 0, 'maximum': 20000,
                                         'description': 'Bytes of each log tail to include (default 2000).'}}, ['job_id']),
                  job_wait, 'jobs', needs_ctx=True),
-        ToolSpec('list_jobs', 'List the 30 most recent managed jobs belonging to this chat; recover handles after compaction/restart.',
+        ToolSpec('list_jobs', 'The 30 most recent jobs of this chat.',
                  params({}, []), list_jobs, 'jobs', needs_ctx=True),
-        ToolSpec('read_job_log', 'Read a bounded chunk of a managed job stdout/stderr using a byte cursor. '
-                 'Use next_cursor for the next chunk. at_end is current EOF, not necessarily job completion. '
-                 'Logs cap at 16 MiB per stream; dropped bytes reported. UTF-8 decoding uses replacement.',
+        ToolSpec('read_job_log', "Read a chunk of a job's stdout or stderr from a byte cursor; next_cursor continues. Logs are capped at 16 MiB per stream.",
                  params({'job_id': {'type': 'string'}, 'stream': {'type': 'string', 'enum': ['stdout', 'stderr']},
                          'cursor': {'type': 'integer', 'minimum': 0},
                          'max_bytes': {'type': 'integer', 'minimum': 1, 'maximum': 200000}}, ['job_id']),
                  read_job_log, 'jobs', needs_ctx=True),
-        ToolSpec('cancel_job', 'Request termination of a managed job process tree, retaining logs. Idempotent; '
-                 'poll job_status to confirm cancellation. Chat Stop does not cancel detached jobs.',
+        ToolSpec('cancel_job', "Terminate a job's process tree; its logs are kept.",
                  params({'job_id': {'type': 'string'}}, ['job_id']), cancel_job, 'jobs', dangerous=True, needs_ctx=True),
     ]
     for spec in definitions:

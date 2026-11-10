@@ -4,11 +4,10 @@ Two things beyond a plain wrapper:
 
 * **Cache breakpoint injection.** Anthropic-family models on OpenRouter cache
   only where you put an explicit `cache_control` marker. We place one at the end
-  of the system prompt (so it survives every compaction) and one at the end of
-  the frozen prefix (so the stable history is cached as a unit), plus a moving
-  one on the last block so tool iterations re-read the hot zone. This is the
-  other half of the "never rewrite the prefix" invariant -- freezing the bytes is
-  pointless if nothing tells the provider to cache them.
+  of the system prompt (so it survives every compaction), one on each history rung
+  the agent passes (cache_policy.plan_rungs: the last unchanged message before a
+  change, older tails), plus a moving one on the last block so tool iterations
+  re-read the previous request.
 
 * **Usage passthrough** including cache-read/-write counts, so the UI can show
   whether the cache strategy is actually working rather than assuming it.
@@ -19,6 +18,7 @@ from __future__ import annotations
 import asyncio
 import json
 import re
+import time
 import uuid
 from typing import Any, AsyncIterator
 
@@ -30,6 +30,54 @@ from .artifacts import expand_messages
 from . import anthropic_api, cache_policy, flex
 
 _TIMEOUT = httpx.Timeout(connect=20.0, read=600.0, write=120.0, pool=20.0)
+
+#: Routes whose keep-alive the provider refused ('anthropic', 'openrouter:<model>'): none again
+#: for this process.
+KEEPALIVE_REFUSED: set[str] = set()
+
+
+class KeepAliveRefused(Exception):
+    """The provider rejected a cache keep-alive request."""
+
+
+def keepalive_route(captured: dict) -> str:
+    return 'anthropic' if captured.get('route') == 'anthropic' else f"openrouter:{captured.get('model')}"
+
+
+def _keepalive_capture(model: str, routed: dict, started: float) -> dict | None:
+    """What an OpenRouter request leaves for a cache keep-alive: only Claude models, whose
+    cache lives 5 minutes and costs a write premium (cache_policy family 'anthropic')."""
+    if cache_policy.cache_family(model) != 'anthropic':
+        return None
+    return {'route': 'openrouter', 'payload': routed, 'started': started, 'model': model}
+
+
+async def _post_json(payload: dict) -> tuple[int, Any]:
+    async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
+        r = await client.post(OPENROUTER_URL, headers=_headers(), json=payload)
+    try:
+        return r.status_code, r.json()
+    except ValueError:
+        return r.status_code, r.text
+
+
+async def keep_warm(captured: dict) -> dict:
+    """Prompt-cache keep-alive for a captured request (agent._keep_cache_warm): the same
+    request again, generating (almost) nothing, so the provider reads the cached prompt and
+    restarts its 5-minute timer. Direct Anthropic API: max_tokens 0. OpenRouter has no
+    max_tokens 0: the identical payload, not streamed, with max_tokens 1; its session_id keeps
+    the request on the provider that holds the cache. Returns {'usage', 'provider', 'generation_id'}."""
+    if captured.get('route') == 'anthropic':
+        return {'usage': await anthropic_api.keep_warm(captured), 'provider': 'Anthropic', 'generation_id': None}
+    payload = dict(captured['payload'])
+    payload['stream'] = False
+    payload['max_tokens'] = 1
+    payload.pop('stream_options', None)
+    status, data = await _post_json(payload)
+    if status >= 400 or not isinstance(data, dict) or data.get('error') or not data.get('usage'):
+        detail = data.get('error') if isinstance(data, dict) else data
+        raise KeepAliveRefused(f"HTTP {status}: {str(detail)[:300]}")
+    return {'usage': data['usage'], 'provider': data.get('provider'), 'generation_id': data.get('id')}
 
 _ANTHROPIC_PREFIXES = ("anthropic/",)
 
@@ -59,11 +107,9 @@ def _as_blocks(content: Any) -> list[dict[str, Any]]:
     return [{"type": "text", "text": content or ""}]
 
 
-def apply_cache_breakpoints(messages: list[dict[str, Any]], model: str,
-                            frozen_msg_count: int, previous_anchor: int | None = None,
+def apply_cache_breakpoints(messages: list[dict[str, Any]], model: str, anchors=(),
                             ttl: str = "5m", tail: bool = True, trailer: int = 0) -> list[dict[str, Any]]:
-    return cache_policy.apply(messages, model, frozen_msg_count, previous_anchor, ttl, tail=tail,
-                              trailer=trailer)[0]
+    return cache_policy.apply(messages, model, anchors, ttl, tail=tail, trailer=trailer)[0]
 
 
 def _merge_usage(target: dict, update: dict) -> None:
@@ -376,8 +422,10 @@ async def stream_chat(
     session_id: str | None = None,
     previous_cache_anchor: int | None = None,
     cache_ttl: str = "5m",
+    cache_anchors: list[int] | None = None,
     pricing_mode: str = "standard",
     uncached_tail: int = 0,
+    capture: dict | None = None,
 ) -> AsyncIterator[dict[str, Any]]:
     """Stream a chat completion. The last `uncached_tail` messages (the live canvas) stay
     behind the tail cache mark.
@@ -391,18 +439,21 @@ async def stream_chat(
 
     `max_tokens=None` (unlimited output, model maximum unknown): left out, the provider
     decides. The direct Anthropic API always needs one; it gets the model's maximum.
+
+    `capture` receives the exact request for a cache keep-alive (direct Anthropic API, and
+    Claude models on OpenRouter).
     """
+    anchors = cache_policy.legacy_anchors(cache_anchors, frozen_msg_count, previous_cache_anchor)
     if anthropic_api.is_direct(model):
         async for ev in anthropic_api.stream_chat(
                 model=model, messages=messages, tools=tools,
                 max_tokens=max_tokens or model_output_limit(model) or 32_000,
-                frozen_msg_count=frozen_msg_count, reasoning_effort=reasoning_effort,
-                previous_cache_anchor=previous_cache_anchor, cache_ttl=cache_ttl,
-                pricing_mode=pricing_mode, uncached_tail=uncached_tail):
+                cache_anchors=anchors, reasoning_effort=reasoning_effort, cache_ttl=cache_ttl,
+                pricing_mode=pricing_mode, uncached_tail=uncached_tail, capture=capture):
             yield ev
         return
     msgs = anthropic_api.strip_tool_changes(expand_messages(apply_cache_breakpoints(
-        messages, model, frozen_msg_count, previous_cache_anchor, cache_ttl, trailer=uncached_tail)))
+        messages, model, anchors, cache_ttl, trailer=uncached_tail)))
     payload: dict[str, Any] = {
         "model": model,
         "messages": msgs,
@@ -443,10 +494,12 @@ async def stream_chat(
         if plan.get('notice') and plan_index not in announced:
             announced.add(plan_index)
             yield {'type': 'routing', **flex.metadata(plan)}
+        routed = _apply_route(payload, plan)
+        started = time.time()
         try:
             async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
                 async with client.stream(
-                    "POST", OPENROUTER_URL, headers=_headers(), json=_apply_route(payload, plan)
+                    "POST", OPENROUTER_URL, headers=_headers(), json=routed
                 ) as r:
                     if r.status_code >= 400:
                         body = (await r.aread()).decode("utf-8", "replace")
@@ -486,6 +539,9 @@ async def stream_chat(
                             yield {'type':'error','error':str(rejection.get('error', 'Unexpected non-stream response')) if isinstance(rejection,dict) else 'Unexpected non-object response'}
                             return
                     else:
+                        if capture is not None:
+                            capture.clear()
+                            capture.update(_keepalive_capture(model, routed, started) or {})
                         async for line in r.aiter_lines():
                             if not line:
                                 continue

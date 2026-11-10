@@ -86,41 +86,11 @@ def pairing_ok(conv: Conversation) -> bool:
 
 # ---------------------------------------------------------------------------
 
-async def test_frozen_prefix_immutable():
-    print("\n[1] frozen prefix is never rewritten (cache safety)")
-    conv = build_conv(n_reads=4, big_lines=400)
-    cfg = CompactionConfig(hot_zone_tokens=6_000, deep_enabled=False, protected_recent_observations=1)
-    eng = CompactionEngine("t", cfg, fake_complete)
-    await eng.run(conv, 200_000)
-
-    hot_start = conv.frozen_upto
-    check("a prefix was frozen", hot_start > 0, f"frozen_upto={hot_start}")
-    frozen_before = [(s.id, s.body) for s in conv.segments[:hot_start]]
-
-    # More turns, more compaction passes.
-    for k in range(3):
-        cid = f"c{k}"
-        conv.new("assistant", K_TOOL_CALL, "", tool_calls=[
-            {"id": cid, "type": "function",
-             "function": {"name": "read_file", "arguments": '{"path":"report.md"}'}}])
-        conv.new("tool", K_TOOL_RESULT,
-                 "\n".join(f"{j}\tmore content line {j}" for j in range(400)),
-                 tool_call_id=cid, tool_name="read_file", resource_key="file:c:/proj/report.md")
-        await eng.run(conv, 200_000)
-
-    now = {s.id: s.body for s in conv.segments}
-    unchanged = all(now.get(sid) == body for sid, body in frozen_before)
-    check("frozen bodies byte-identical after 3 more passes", unchanged)
-    check("frozen boundary is monotone", conv.frozen_upto >= hot_start)
-    check("all frozen segments flagged", all(s.frozen for s in conv.segments[:hot_start]))
-    check("tool pairing intact", pairing_ok(conv))
-
-
 async def test_no_incremental_rewrites():
     print("\n[2] below the deep trigger nothing is rewritten")
     conv = build_conv(n_reads=4, repeated=True)
     before = [s.body for s in conv.segments]
-    cfg = CompactionConfig(hot_zone_tokens=1_000, protected_recent_observations=0, protected_recent_batches=0)
+    cfg = CompactionConfig()
     eng = CompactionEngine("t", cfg, fake_complete)
     for _ in range(3):
         rep = await eng.run(conv, 10_000_000)
@@ -135,7 +105,7 @@ async def test_deep_compaction():
     for i in range(4):
         conv.new("user", K_USER, f"Follow-up question {i}")
         conv.new("assistant", K_ASSISTANT, f"Answer {i}. " + "detail " * 200)
-    cfg = CompactionConfig(hot_zone_tokens=8_000, deep_trigger_ratio=0.05,
+    cfg = CompactionConfig(deep_trigger_ratio=0.05,
                            deep_min_gain_tokens=100, deep_cooldown_turns=0)
     eng = CompactionEngine("t", cfg, fake_complete)
     before = conv.total_tokens()
@@ -182,7 +152,7 @@ async def test_disabled_baseline():
 
 async def main():
     print("ctxagent compaction engine — tests")
-    for t in (test_frozen_prefix_immutable, test_no_incremental_rewrites, test_deep_compaction,
+    for t in (test_no_incremental_rewrites, test_deep_compaction,
               test_orphan_rendering, test_disabled_baseline):
         await t()
     print(f"\n{len(PASS)} passed, {len(FAIL)} failed")

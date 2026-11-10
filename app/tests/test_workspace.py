@@ -74,11 +74,10 @@ class WorkspaceTests(unittest.TestCase):
             with self.assertRaises(WorkspaceError):
                 self.w.open(self.sb, str(self.path), selectors)
 
-    def test_persistence_is_spec_only_and_never_alters_frozen_history(self):
+    def test_persistence_is_spec_only_and_never_alters_the_history(self):
         c = Conversation()
         c.new('system', K_SYSTEM, 'system')
         c.new('user', K_USER, 'work on draft')
-        c.freeze_prefix(2)
         before = json.dumps(c.to_messages())
         c.workspace.open(self.sb, str(self.path), 'first')
         encoded = c.dumps()
@@ -87,7 +86,6 @@ class WorkspaceTests(unittest.TestCase):
         restored.workspace.refresh(self.sb)
         self.assertIn('return 1', restored.workspace.messages()[0]['content'])
         self.assertEqual(json.dumps(c.to_messages()), before)
-        self.assertEqual(restored.frozen_upto, 2)
         self.assertEqual(Conversation.from_dict({'segments': []}).workspace.messages(), [])
 
     def test_permissions_rechecked(self):
@@ -169,8 +167,7 @@ class BatchingTests(unittest.IsolatedAsyncioTestCase):
             cfg = SessionConfig(workdirs=[td], compaction=CompactionConfig(enabled=False))
             c = Conversation()
             c.new('system', K_SYSTEM, 'initial')
-            c.new('assistant', 'assistant_text', 'older frozen work')
-            c.freeze_prefix(2)
+            c.new('assistant', 'assistant_text', 'older work')
             c.new('user', K_USER, 'working-tail task')
             s = AgentSession('cache-slot', cfg, c)
             s.persist = lambda: None
@@ -189,10 +186,12 @@ class BatchingTests(unittest.IsolatedAsyncioTestCase):
                 yield {'type': 'done', 'finish_reason': 'stop'}
             with patch('ctxagent.agent.llm.stream_chat', stream):
                 _ = [e async for e in s.run_turn('')]
-            self.assertIn('DOCUMENT OPERATION CATALOG', seen[0][2]['content'])
-            self.assertIn('LIVE DOCUMENT WORKSPACE', seen[0][3]['content'])
+            # A new chat has no rung yet: the views go right behind the system prompt and stay
+            # there while they do not change (cache_policy.plan_rungs).
+            self.assertIn('DOCUMENT OPERATION CATALOG', seen[0][1]['content'])
+            self.assertIn('LIVE DOCUMENT WORKSPACE', seen[0][2]['content'])
             self.assertEqual(seen[0], seen[1][:len(seen[0])])
-            self.assertEqual(seen[0][:2], c.to_messages()[:2])
+            self.assertEqual(seen[0][:1], c.to_messages()[:1])
             self.assertEqual([r['tool_calls'] for r in s.usage['recent_requests']], [1, 0])
 
     async def test_disconnect_cleans_read_tasks_before_unlocking(self):

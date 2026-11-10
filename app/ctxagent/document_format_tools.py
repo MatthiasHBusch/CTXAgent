@@ -18,10 +18,7 @@ def register(registry, ToolSpec, ToolResult, obj):
         return await ctx['session']._exec_tool(name, args)
 
     registry['document_call'] = ToolSpec('document_call',
-        'Execute an enabled operation from the DOCUMENT OPERATION CATALOG immediately before live files. '
-        'operation is its exact name; arguments_json is a JSON object encoded as a string. '
-        'The catalog contains schemas and compatible document ids. If absent, open a compatible document first. '
-        'Prepared edit plans require diff/summary review before application. No arbitrary tool dispatch.',
+        'Run an operation from the document operation catalog. The catalog precedes the live files and lists the operations available for the open documents with their parameters. arguments_json is a JSON object as text.',
         obj({'operation': string(), 'arguments_json': {'type': 'string', 'maxLength': 200000}},
             ['operation', 'arguments_json']), document_call, group='documents', needs_ctx=True)
 
@@ -44,23 +41,23 @@ def register(registry, ToolSpec, ToolResult, obj):
 
     pages = array(integer(1, 1000000), 20)
     definitions = [
-        ('document_pdf_inspect', 'PDF page count, metadata and bookmark tree; read-only, no OCR/editing.', {}, []),
-        ('document_pdf_text', 'Extract complete text from 1..20 chosen 1-based PDF pages. Refuses oversize output rather than silently truncating. Not OCR/layout evidence.',
+        ('document_pdf_inspect', 'Page count, metadata and bookmark tree of a PDF.', {}, []),
+        ('document_pdf_text', 'Text of up to 20 PDF pages (1-based), no OCR. Output over max_chars is refused, not cut.',
          {'pages': pages, 'max_chars': integer(1, 40000)}, ['pages']),
-        ('document_pdf_render', 'Render PDF pages as native visual evidence. Select 1..6 1-based pages; 72..200 DPI with raster safety limits.',
+        ('document_pdf_render', 'Render up to 6 PDF pages (1-based) as images, 72-200 DPI.',
          {'pages': array(integer(1, 1000000), 6), 'dpi': integer(72, 200)}, ['pages']),
-        ('document_docx_inspect', 'Inspect zero-based top-level DOCX body paragraphs and direct text-run counts, not tables/headers/drawings. Offset/limit make omitted paragraphs explicit.',
+        ('document_docx_inspect', 'Top-level body paragraphs of a DOCX (zero-based) with their text-run counts; tables, headers and drawings are not included.',
          {'offset': integer(0, 1000000), 'limit': integer(1, 100)}, []),
-        ('document_docx_replace', 'Prepare a reviewed DOCX run-local text replacement plan. old_text must occur once within one direct plain text run of paragraph. No run-crossing/control characters/fields. Styles and unrelated ZIP members preserved; verify layout externally.',
+        ('document_docx_replace', 'Prepare a plan replacing text inside single runs of a DOCX: old_text occurs once within one plain text run of the paragraph. Styles and the rest of the package are kept. Returns the diff; document_apply_edits writes it.',
          {'updates': array(obj({'paragraph': integer(0, 1000000), 'old_text': string(), 'new_text': string()},
                               ['paragraph', 'old_text', 'new_text']), 100)}, ['updates']),
-        ('document_xlsx_inspect', 'Inspect XLSX sheet names, or stored cells of one exact sheet. Values/formula caches only; dates/styles/formulas are not evaluated. Omitted cells explicit.',
+        ('document_xlsx_inspect', 'Sheet names of an XLSX, or the stored cells of one sheet: values and cached formula results; nothing is evaluated.',
          {'sheet': string(), 'max_cells': integer(1, 500)}, []),
-        ('document_xlsx_update', 'Prepare a reviewed XLSX existing-cell edit plan. Exact sheet and cell address; value_json encodes string/number/bool/null. No formulas/rich text or absent cells. Cell styles/unrelated package members preserved; formula caches remain stale until Excel recalculates. No macro/signed-package editing.',
+        ('document_xlsx_update', 'Prepare a plan setting existing cells of a sheet; value_json is a JSON string, number, bool or null. Formulas and absent cells are not supported. Styles are kept; cached formula results stay stale until Excel recalculates. document_apply_edits writes it.',
          {'sheet': string(), 'updates': array(obj({'cell': string(), 'value_json': string()},
                                                 ['cell', 'value_json']), 100)}, ['sheet', 'updates']),
-        ('document_mesh_inspect', 'Inspect OBJ or binary STL vertex/face counts and bounds. No external material loading, rendering, units inference or full topology validation. ASCII STL/other CAD formats unsupported.', {}, []),
-        ('document_obj_transform', 'Prepare a reviewed OBJ positive-uniform-scale then translation plan for vertex coordinates only. Faces/normals/material lines unchanged; returns before/after bounds and exact diff. Optional homogeneous w must be 1. Units unspecified; not a CAD scene transform.',
+        ('document_mesh_inspect', 'Vertex and face counts and bounds of an OBJ or binary STL.', {}, []),
+        ('document_obj_transform', 'Prepare a plan that scales (uniform, positive) and then translates the vertex coordinates of an OBJ; faces, normals and materials stay. Returns the bounds before and after and the diff; document_apply_edits writes it.',
          {'translate': {**array({'type': 'number'}, 3), 'minItems': 3}, 'scale': {'type': 'number', 'exclusiveMinimum': 0}}, ['translate']),
     ]
     for name, description, props, extra in definitions:

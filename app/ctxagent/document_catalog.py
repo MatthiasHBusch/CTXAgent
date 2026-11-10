@@ -1,6 +1,6 @@
 """Late-bound document operations; one stable native schema, a mutable catalog.
 
-Catalog messages belong after the frozen prefix and before live file data. They
+Catalog messages go with the live views (behind the newest cache rung) and before live file data. They
 are generated, not persisted as history. Open/close changes never change the
 native dispatcher schema; provider cache hits remain an external measurement.
 """
@@ -70,11 +70,9 @@ def messages(session):
                         if session.conv.canvas.is_open else []),
     }
     return [{'role': 'user', 'content':
-        'DOCUMENT OPERATION CATALOG — generated runtime capabilities, not file data.\n'
-        'Call document_call(operation, arguments_json) using an operation listed below. '
-        'arguments_json must encode an object matching its parameters. Open/ready, '
-        'format, permission and version guards are rechecked during execution. '
-        'Lifecycle tools remain native. Review prepared plans before applying.\n'
+        'DOCUMENT OPERATION CATALOG (generated, not file data): operations that '
+        'document_call(operation, arguments_json) runs on the open documents. '
+        'arguments_json encodes an object matching the parameters.\n'
         + json.dumps(payload, ensure_ascii=False, separators=(',', ':'))}]
 
 

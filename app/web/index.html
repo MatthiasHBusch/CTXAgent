@@ -250,6 +250,7 @@
             <div class="kv"><span class="k">Completion (split unavailable)</span><span class="v" id="u-unsplit-cost">—</span></div>
             <div class="kv"><span class="k">Historical unallocated</span><span class="v" id="u-legacy-cost">—</span></div>
             <div class="kv"><span class="k">Summary model (in total)</span><span class="v" id="u-summary-cost">—</span></div>
+            <div class="kv"><span class="k">Cache keep-alives (in total)</span><span class="v" id="u-keepalive-cost">—</span></div>
           </div>
           <p id="u-allocation-note" class="usage-note"></p>
           <details class="disclosure"><summary>Latest cache diagnostics</summary><pre id="u-cache-diagnostic" class="usage-diagnostic"></pre></details>
@@ -537,28 +538,14 @@
             <span class="lbl">Self-steered context management<small>The model manages its own context with compact_context and curate_context, guided by a short section in the system prompt; the engine hints when a review is due. Deep compaction stays automatic as the safety net. Off: the engine manages the context with deep compaction alone, and the model has neither tool.</small></span>
           </label>
           <div class="field">
-            <label for="c-hot">Recent working tail: target <b id="c-hot-v"></b> tokens</label>
-            <div class="input-unit"><input type="number" id="c-hot" min="0" step="1"><span class="unit">tokens</span></div>
-            <small class="help" id="c-hot-state"></small>
-          </div>
-          <div class="row2">
-            <div class="field">
-              <label for="c-protobs">Protected observations</label>
-              <input type="number" id="c-protobs" min="0" max="30">
-            </div>
-            <div class="field">
-              <label for="c-protusr">Protected user turns</label>
-              <input type="number" id="c-protusr" min="0" max="10">
-            </div>
+            <label for="c-protusr">Protected user turns</label>
+            <input type="number" id="c-protusr" min="0" max="10">
+            <small class="help">Deep compaction keeps this many recent user messages verbatim.</small>
           </div>
         </fieldset>
 
         <fieldset class="group">
           <legend>Review &amp; result delivery</legend>
-          <label class="switchrow">
-            <input type="checkbox" id="c-review">
-            <span class="lbl">Review before freezing<small>Fresh batches, recent observations and expiring pins stay out of the frozen (cached) prefix. Self-steered, the prefix advances only when the model curates or compacts. Already-frozen history is not thawed.</small></span>
-          </label>
           <div class="field">
             <label for="c-delivery">Initial tool-result cap</label>
             <div class="input-unit"><input type="number" id="c-delivery" min="0" max="100000" step="1000"><span class="unit">tokens · 0 = off</span></div>
@@ -601,6 +588,10 @@
             <input type="checkbox" id="c-share">
             <span class="lbl">Summarise on the cached prefix<small>When the summariser is the chat model, re-send the cached conversation with the instruction appended instead of a fresh prompt (50 to 79 % cheaper per summary).</small></span>
           </label>
+          <label class="switchrow">
+            <input type="checkbox" id="c-keepalive">
+            <span class="lbl">Keep the prompt cache warm while tools run<small>Claude models, direct or through OpenRouter. While a tool runs longer than the 5-minute cache lifetime (a build, a test suite, job_wait, agent_wait), the last request is re-sent without output every 4.5 minutes. That costs a cache read; an expired cache costs a full rewrite (25 times as much on Opus 5.5). After half as many keep-alives as one rewrite costs (about an hour on Opus 5.5), the cache is let go.</small></span>
+          </label>
         </fieldset>
 
         <fieldset class="group" id="c-selfgroup">
@@ -611,15 +602,9 @@
             <div class="input-unit"><input type="number" id="c-interval" min="1" max="100" step="1"><span class="unit">batches</span></div>
             <small class="help">A batch may contain several calls. The hint is one line appended to the newest tool result.</small>
           </div>
-          <div class="row2">
-            <div class="field">
-              <label for="c-newtokens">Earlier hint: new tokens</label>
-              <div class="input-unit"><input type="number" id="c-newtokens" min="1000" step="1000"><span class="unit">tokens</span></div>
-            </div>
-            <div class="field">
-              <label for="c-pressure">Earlier hint: pressure</label>
-              <div class="input-unit"><input type="number" id="c-pressure" min="0.1" max="0.95" step="0.05"><span class="unit">of window</span></div>
-            </div>
+          <div class="field">
+            <label for="c-pressure">Earlier hint: pressure</label>
+            <div class="input-unit"><input type="number" id="c-pressure" min="0.1" max="0.95" step="0.05"><span class="unit">of window</span></div>
           </div>
           <div class="field">
             <label for="c-guidance">System-prompt guidance</label>

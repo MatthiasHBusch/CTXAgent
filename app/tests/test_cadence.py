@@ -1,7 +1,9 @@
-"""Cadence checks: review hints (self-steered) come on the interval, on large new context
-or under pressure; freezing and pressure checks run every batch; below the deep trigger
+"""Cadence checks: review hints (self-steered) come on the interval or under pressure, never
+on the amount of new output alone; freezing and pressure checks run every batch; below the deep trigger
 the engine never changes a body."""
 import unittest
+
+from ctxagent.compaction import curate
 
 from ctxagent.compaction import CompactionEngine
 from ctxagent.config import CompactionConfig
@@ -11,7 +13,7 @@ from tests.test_context_controls import batch
 
 
 def config(**kwargs):
-    base = dict(rewrite_interval_batches=5, rewrite_max_new_tokens=1000000, deep_enabled=False,
+    base = dict(rewrite_interval_batches=5, deep_enabled=False,
                 rewrite_policy='agent')
     base.update(kwargs)
     return CompactionConfig(**base)
@@ -25,22 +27,21 @@ def started():
 
 
 class CadenceTests(unittest.IsolatedAsyncioTestCase):
-    async def test_hint_on_fifth_batch_but_freezes_each_batch(self):
+    async def test_hint_on_fifth_batch(self):
         conv = started()
-        engine = CompactionEngine('cadence', config(hot_zone_tokens=1000), fake_complete)
+        engine = CompactionEngine('cadence', config(), fake_complete)
         for i in range(5):
             res = batch(conv, n=1, lines=150)
             report = await engine.run(conv, 1_000_000)
             self.assertEqual('review_hint' in report, i == 4)
             if i < 4:
                 self.assertNotIn('schedule', report)
-        self.assertGreater(conv.frozen_upto, 0)
         self.assertEqual(report['schedule']['reason'], 'agent review due (batch interval)')
-        self.assertIn('[harness: context review due', res[0].body)
+        self.assertTrue(res[0].body.endswith(curate.HINT))
 
     async def test_hint_repeats_only_after_another_interval(self):
         conv = started()
-        engine = CompactionEngine('repeat', config(rewrite_interval_batches=2, hot_zone_tokens=10_000_000),
+        engine = CompactionEngine('repeat', config(rewrite_interval_batches=2),
                                   fake_complete)
         hinted = []
         for i in range(6):
@@ -74,12 +75,16 @@ class CadenceTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn('(pressure)', report['schedule']['reason'])
         self.assertIn('review_hint', report)
 
-    async def test_large_output_hint(self):
+    async def test_large_output_alone_brings_no_hint(self):
+        # Removed 2026-11-10: a hint on new tokens led to early curates that freed little.
         c = started()
         batch(c, n=1, lines=800)
-        e = CompactionEngine('large', config(rewrite_max_new_tokens=1000), fake_complete)
+        e = CompactionEngine('large', CompactionConfig.from_dict(
+            {'rewrite_interval_batches': 5, 'deep_enabled': False, 'rewrite_policy': 'agent',
+             'rewrite_max_new_tokens': 1000}), fake_complete)
         report = await e.run(c, 1_000_000)
-        self.assertIn('(large new context)', report['schedule']['reason'])
+        self.assertNotIn('review_hint', report)
+        self.assertNotIn('new_tokens', c.compaction_state)
 
     async def test_final_response_does_not_increment_batch_count(self):
         c = started()
@@ -102,7 +107,7 @@ class CadenceTests(unittest.IsolatedAsyncioTestCase):
         for i in range(20):
             batch(c, n=1, lines=60)
             c.new('tool', K_TOOL_RESULT, str(i) + ' repeated material ' * 60)
-        cfg = config(rewrite_policy='auto', hot_zone_tokens=100, deep_enabled=True)
+        cfg = config(rewrite_policy='auto', deep_enabled=True)
         e = CompactionEngine('unchanged', cfg, fake_complete)
         before = c.to_messages()
         report = await e.run(c, 10_000_000)
@@ -130,17 +135,20 @@ class CadenceTests(unittest.IsolatedAsyncioTestCase):
 
     def test_config_roundtrip_and_defaults(self):
         cfg = CompactionConfig.from_dict({})
-        self.assertEqual(cfg.rewrite_interval_batches, 10)
-        self.assertEqual(CompactionConfig.from_dict(cfg.to_dict()).rewrite_max_new_tokens, 20000)
+        self.assertEqual(cfg.rewrite_interval_batches, 20)
+        self.assertEqual(CompactionConfig.from_dict(cfg.to_dict()).rewrite_interval_batches, 20)
+        self.assertFalse(hasattr(cfg, 'rewrite_max_new_tokens'))
         with self.assertRaises(ValueError):
             CompactionConfig.from_dict({'rewrite_pressure_ratio': float('nan')})
 
     def test_removed_settings_still_load(self):
         old = {'masking_enabled': True, 'dedup_enabled': True, 'significance_enabled': True,
                'mask_tiers': [2000, 1500], 'curate_gate': 'defer', 'tail_ratio_max': .15,
-               'guidance': 'economics_hint', 'hot_zone_tokens': 40000}
+               'guidance': 'economics_hint', 'hot_zone_tokens': 40000, 'review_before_freeze': True,
+               'protected_recent_observations': 12, 'protected_recent_batches': 3}
         cfg = CompactionConfig.from_dict(old)
-        self.assertEqual(cfg.hot_zone_tokens, 40000)
+        self.assertNotIn('hot_zone_tokens', cfg.to_dict())       # the frozen prefix went on 2026-11-10
+        self.assertNotIn('review_before_freeze', cfg.to_dict())
         self.assertEqual(cfg.guidance, 'default')
         self.assertNotIn('masking_enabled', cfg.to_dict())
         self.assertEqual(CompactionConfig.from_dict({'guidance': 'live'}).guidance, 'live')

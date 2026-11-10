@@ -358,9 +358,9 @@ class ProfileTests(Isolated):
             self.assertEqual('compact_context' in cfg.active_tools(), on, cfg.model)
 
     def test_crud_partial_storage_and_validation(self):
-        p = profiles.create('Mine', {'model': 'x/y', 'compaction': {'hot_zone_tokens': 12345, 'bogus': 1},
+        p = profiles.create('Mine', {'model': 'x/y', 'compaction': {'deep_min_gain_tokens': 12345, 'bogus': 1},
                                      'bogus_top': 1, 'workdirs': ['C:/should/not/stick']})
-        self.assertEqual(p['config'], {'model': 'x/y', 'compaction': {'hot_zone_tokens': 12345}})
+        self.assertEqual(p['config'], {'model': 'x/y', 'compaction': {'deep_min_gain_tokens': 12345}})
         self.assertEqual(p['effective']['context_window'], SessionConfig().context_window)
         self.assertEqual(profiles.create('Mine')['name'], 'Mine (2)')
         with self.assertRaises(profiles.ProfileError):
@@ -413,10 +413,10 @@ class ProfileTests(Isolated):
         cfg['workdirs'] = [str(self.root)]
         self.assertFalse(profiles.chat_status(cfg)['modified'])
         cfg['temperature'] = 0.2
-        cfg['compaction']['hot_zone_tokens'] = 1234
+        cfg['compaction']['deep_min_gain_tokens'] = 1234
         status = profiles.chat_status(cfg)
         self.assertTrue(status['modified'])
-        self.assertEqual(status['differences'], ['compaction.hot_zone_tokens', 'temperature'])
+        self.assertEqual(status['differences'], ['compaction.deep_min_gain_tokens', 'temperature'])
         legacy = SessionConfig().to_dict()
         self.assertEqual(profiles.chat_status(legacy)['profile'], None)
         legacy['profile_id'] = 'p-gone'

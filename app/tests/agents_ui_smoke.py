@@ -7,7 +7,7 @@ from ctxagent.config import SessionConfig,BACKEND_BUILD
 from ctxagent import tools
 
 ROOT=Path(__file__).resolve().parent.parent
-cfg=SessionConfig(agent_max_parallel=3,agent_max_depth=1,agent_timeout_seconds=600).to_dict(); cfg['enabled_tools']=['read_file']; cfg['compaction']['hot_zone_tokens']=10000
+cfg=SessionConfig(agent_max_parallel=3,agent_max_depth=1,agent_timeout_seconds=600).to_dict(); cfg['enabled_tools']=['read_file']; cfg['compaction']['deep_min_gain_tokens']=10000
 worker={'id':'1'*32,'child':'CHILD','parent':'A','root':'A','state':'succeeded',
         'task':'Review isolated context','read_only':True,'usage':{'requests':2,'cost':.01},'error':''}
 started=[]; follows=[]
@@ -93,15 +93,15 @@ with sync_playwright() as pw:
     page.evaluate("openChat('CHILD')")
     assert page.locator('#input').is_disabled()
     assert page.locator('#f-model').is_disabled()
-    assert page.locator('#c-hot').is_disabled()
-    cfg['compaction']['hot_zone_tokens']=12345; stats['hot_zone_budget']=12345
+    assert page.locator('#c-mingain').is_disabled()
+    cfg['compaction']['deep_min_gain_tokens']=12345
     page.evaluate("openChat('A')")
     assert page.locator('#f-model').is_enabled()
-    assert page.locator('#c-hot').is_enabled()
-    assert page.locator('#c-hot').input_value() == '12345'
+    assert page.locator('#c-mingain').is_enabled()
+    assert page.locator('#c-mingain').input_value() == '12345'
     page.evaluate("patchCfg({compaction:{summary_model:'mirror/model'}})")
     assert page.locator('#f-summodel').input_value() == 'mirror/model'
     assert page.locator('#c-summodel').input_value() == 'mirror/model'
-    assert cfg['compaction']['hot_zone_tokens'] == 12345
+    assert cfg['compaction']['deep_min_gain_tokens'] == 12345
     browser.close()
 print('Delegation UI smoke passed: enable, dispatch, read report, follow-up; no model generation.')

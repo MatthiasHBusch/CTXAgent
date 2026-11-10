@@ -35,32 +35,23 @@ def register(registry, ToolSpec, ToolResult, params):
     string = {'type': 'string'}
     paths = {'type': 'array', 'items': string, 'maxItems': 200}
     specs = [
-        ToolSpec('scholarly_search', 'Search Crossref scholarly metadata. Sends ONLY the query to api.crossref.org. '
-                 'Results are candidates, not evidence of scientific claims; verify exact DOI/title/authors.',
+        ToolSpec('scholarly_search', 'Search Crossref metadata; only the query is sent. Returns candidate records (DOI, title, authors).',
                  params({'query': string, 'limit': {'type': 'integer', 'minimum': 1, 'maximum': 20}}, ['query']),
                  scholarly_search, 'research-web'),
-        ToolSpec('doi_lookup', 'Resolve an exact DOI via Crossref. Optionally return escaped BibTeX using citation_key. '
-                 'Metadata may contain omissions/errors; does not download the paper or verify claims.',
+        ToolSpec('doi_lookup', 'Crossref metadata for a DOI; with citation_key also as BibTeX. The paper itself is not downloaded.',
                  params({'doi': string, 'citation_key': string}, ['doi']), doi_lookup, 'research-web'),
-        ToolSpec('record_evidence', 'Verify a quotation is present in a local source after whitespace normalization, then '
-                 'write an evidence JSON record with source SHA-256, claim, quotation, locator and context. PDF requires page. '
-                 'Text presence does NOT establish that the source supports the claim; DOI-to-file identity is not verified.',
+        ToolSpec('record_evidence', 'Check that a quotation occurs in a local source (whitespace-normalised) and write an evidence JSON record: source SHA-256, claim, quotation, locator, context. A PDF needs page. Presence of the text does not show that the source supports the claim.',
                  params({'source': string, 'quotation': string, 'claim': string, 'output_dir': string,
                          'page': {'type': 'integer', 'minimum': 1}, 'doi': string},
                         ['source','quotation','claim','output_dir']), record_evidence, 'research', dangerous=True),
-        ToolSpec('environment_report', 'Report Python/platform and selected scientific package versions. '
-                 'No environment variables or secrets are read into the report.',
+        ToolSpec('environment_report', 'Python, platform and versions of scientific packages. Reads no environment variables.',
                  params({}, []), environment_report, 'science'),
-        ToolSpec('experiment_manifest', 'Create a planned reproducibility manifest WITHOUT running the command. '
-                 'Hashes explicit code/input files, records parameters/seeds (does NOT set them), environment and Git state. '
-                 'Refuses to overwrite an existing manifest. Use start_job for clean execution.',
+        ToolSpec('experiment_manifest', 'Write a reproducibility manifest for a planned command without running it: hashes of code and input files, parameters and seeds as declared, environment, Git state. An existing manifest is not overwritten.',
                  params({'output': string, 'cwd': string, 'command': string, 'code_files': paths,
                          'inputs': paths, 'parameters': {'type': 'object'}, 'seeds': {'type': 'object'}},
                         ['output','cwd','command','code_files','inputs','parameters','seeds']),
                  experiment_manifest, 'science', dangerous=True),
-        ToolSpec('finalize_experiment', 'Write a separate result manifest after execution. Hash explicit outputs, detect '
-                 'code/input drift, compare declared command/cwd with owned managed job, report missing outputs. '
-                 'An existing output is not proof it was produced by this job; inspect results and clean-run reproducibility.',
+        ToolSpec('finalize_experiment', "Write a result manifest after the run: hashes of the outputs, drift of code and inputs since the plan, comparison with the job's command and cwd, missing outputs.",
                  params({'manifest': string, 'output': string, 'outputs': paths, 'job_id': string},
                         ['manifest','output','outputs']), finalize_experiment, 'science', dangerous=True, needs_ctx=True),
     ]

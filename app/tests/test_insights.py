@@ -81,7 +81,7 @@ class RecordingTests(Isolated):
         p = patch.object(insights, 'enabled', lambda: True); p.start(); self.addCleanup(p.stop)
         self.work = self.root / 'w'
         self.work.mkdir()
-        (self.work / 'a.txt').write_text('hello world\n', encoding='utf-8')
+        (self.work / 'a.txt').write_text('hello world\n' + 'filler line\n' * 300, encoding='utf-8')
         self.s = self.session(self.work)
         provider = ScriptedProvider(
             [usage(1000)] + tool_turn(call('r1', 'read_file', {'path': 'a.txt'}), text='Reading the file.'),
@@ -89,7 +89,7 @@ class RecordingTests(Isolated):
             [usage(1300)] + tool_turn(call('e2', 'edit_file', {'path': 'a.txt', 'old_string': 'hello', 'new_string': 'bye'})),
             [usage(1400)] + text_turn('All done: a.txt now says bye.'),
             [usage(1500)] + tool_turn(call('c1', 'compact_context', {'summary': 'Edited a.txt: hello -> bye.',
-                                                                     'dry_run': True}),
+                                                                     'until': 2}),      # the answer stays
                                       text='The edit is done; checking what a hand-off would save.'),
             [usage(1600)] + text_turn('Nothing to hand off yet.'),
         )
@@ -124,7 +124,7 @@ class RecordingTests(Isolated):
         ctx = [e for e in self.ev if e['kind'] == 'context']
         self.assertEqual(len(ctx), 1)
         c = ctx[0]
-        self.assertEqual((c['source'], c['dry_run'], c['applied'], c['turn']), ('compact_context', True, False, 2))
+        self.assertEqual((c['source'], c['dry_run'], c['applied'], c['turn']), ('compact_context', False, True, 2))
         self.assertIn('Is a hand-off worth it?', c['task'])
         self.assertIn('a.txt now says bye', c['last_answer'])
         self.assertIn('checking what a hand-off would save', c['call_text'])
@@ -145,7 +145,7 @@ class RecordingTests(Isolated):
         self.assertEqual(e['read_first']['read'], {'calls': 2, 'failed': 1})
         self.assertEqual(e['classes'], [('result.edit_not_found', 1)])
         self.assertEqual(stats['inspection']['read_file_calls'], 1)
-        self.assertEqual(stats['context']['by_source']['compact_context']['dry_run'], 1)
+        self.assertEqual(stats['context']['by_source']['compact_context']['applied'], 1)
         chat = stats['chats'][0]
         self.assertEqual((len(chat['requests']), chat['peak'], chat['turns']), (6, 1600, 2))
         page = insights_report.render_html(stats)

@@ -47,11 +47,10 @@ class CatalogTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(result.error, result.text)
         return json.loads(result.text), result
 
-    async def test_native_schema_stable_and_catalog_after_frozen_prefix(self):
+    async def test_native_schema_stable_and_catalog_after_the_history_prefix(self):
         conv = self.s.conv
         conv.new('system', K_SYSTEM, build_system_prompt(self.s.cfg))
         conv.new('user', K_USER, 'fixed evidence')
-        conv.freeze_prefix(2)
         conv.new('user', K_USER, 'working question')
         schema = self.s.tool_schema()
         self.assertIn('document_call', {t['function']['name'] for t in schema})
@@ -62,11 +61,11 @@ class CatalogTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn('document_json_update', payload)
         self.assertNotIn('document_pdf_render', payload)
         before = conv.to_messages()[:2] + catalog.messages(self.s) + conv.workspace.messages() + conv.to_messages()[2:]
-        diagnostic = cache_policy.diagnose(before, schema, 'anthropic/test', 2, None, 'high')
+        diagnostic = cache_policy.diagnose(before, schema, 'anthropic/test', None, 'high')
         self.s.conv.workspace.close(doc)
         self.open('mesh.obj', 'v 0 0 0\nv 1 0 0\nv 0 1 0\nf 1 2 3\n')
         after = conv.to_messages()[:2] + catalog.messages(self.s) + conv.workspace.messages() + conv.to_messages()[2:]
-        next_diag = cache_policy.diagnose(after, self.s.tool_schema(), 'anthropic/test', 2, diagnostic, 'high')
+        next_diag = cache_policy.diagnose(after, self.s.tool_schema(), 'anthropic/test', diagnostic, 'high')
         self.assertEqual(before[:2], after[:2])
         self.assertEqual(schema, self.s.tool_schema())
         self.assertEqual(next_diag['shared_messages'], 2)
@@ -84,9 +83,10 @@ class CatalogTests(unittest.IsolatedAsyncioTestCase):
             async for event in self.s.run_turn(''):
                 pass
         actual = captured[0]['messages']
-        self.assertIn('CATALOG', actual[2]['content'])
-        self.assertIn('LIVE DOCUMENT', actual[3]['content'])
-        self.assertEqual(before[:2], actual[:2])
+        # The chat's first request has no cache rung yet: the views go behind the system prompt.
+        self.assertIn('CATALOG', actual[1]['content'])
+        self.assertIn('LIVE DOCUMENT', actual[2]['content'])
+        self.assertEqual(before[:1], actual[:1])
 
     async def test_dispatcher_validates_permissions_json_schema_and_closed_targets(self):
         p, doc, version = self.open('data.json', '{"n":1}')

@@ -1,231 +1,272 @@
-"""Agent-curated incremental review (the `curate_context` tool, rewrite_policy='agent').
+"""Agent-curated context (the `curate_context` tool, rewrite_policy='agent').
 
-Only the agent knows which tool results are still load-bearing: a 3 kB grep that located
-the bug stays useful for an hour, a 40 kB build log is dead the moment the agent has read
-"BUILD_OK". With ``rewrite_policy='agent'`` the engine appends a one-line HINT to the
-newest tool result when a review is due (interval, large new context, pressure), and the
-agent then
+Only the agent knows which items are still load-bearing: a 3 kB grep that located the bug
+stays useful for an hour, a 40 kB build log is dead the moment the agent has read
+"BUILD_OK". The agent replaces what it no longer needs verbatim by its own short text:
 
-    curate_context()                                   # list the unreviewed results
-    curate_context(drop=["id1", {"id": "id2", "note": "BUILD_OK, 0 warnings"}])
+    curate_context(3, "BUILD_OK, 0 warnings", 7, "Foo::bar is defined at x.cpp:120")
 
-* `drop`: the full body goes to a blob (lossless; recall restores it) and the
-  visible stub becomes the agent's own note plus the result's first line - a
-  better stub than any truncation, because the author knows the takeaway.
-* Everything not named is kept verbatim - nothing is removed by accident.
-* ``commit`` (default true) promotes the reviewed region to the frozen prefix and resets
-  the review counter, so no hint follows right after.
-* ``dry_run`` reports the effect and the cache break-even without changing anything.
-
-Cost (economics.py): a drop re-sends everything after the last cache breakpoint before
-it (with explicit breakpoints: after the frozen prefix) at the cache-write price. Every
-result reports the break-even.
+* A reference counts back from the newest item before the call: 1 is the newest tool
+  result, tool call or answer, 2 the one before, and so on, in the order the model reads
+  them (a call's results follow it). An answer is an assistant message without tool calls;
+  text written alongside tool calls belongs to them and is no item of its own (in a live
+  check on Opus 5.5 the model counted exactly that way, 4 of 4). User messages, summaries
+  and harness messages are not items; neither is the batch that runs the curate call.
+* The original goes to a blob, and recall(segment_id) returns it. The visible stub is the
+  agent's replacement plus that handle; a tool call's arguments become {"replaced": text,
+  "recall_segment_id": id}.
+* Items not named stay verbatim; a call without pairs changes nothing.
+* The provider re-reads the prompt up to the newest cache point before the oldest replaced
+  item and writes the rest again. The next request puts a breakpoint right before that item
+  (cache_policy.plan_rungs), so replacing recent items is cheap.
+* The review hint (engine._hint) names the cache breakpoints in the history by reference
+  and a few words of the item (`hint`): the items behind one breakpoint are re-written
+  together, whichever of them is replaced.
 
 The safety net stays automatic (engine.py): deep compaction at deep_trigger_ratio.
 """
 from __future__ import annotations
 
 import json
+from dataclasses import dataclass
 
-from ..segments import Conversation, K_TOOL_CALL, K_TOOL_RESULT, S_OFFLOADED, S_ORIGINAL
+from ..segments import (Conversation, Segment, K_ASSISTANT, K_TOOL_CALL, K_TOOL_RESULT, S_OFFLOADED)
 from ..blobs import put_blob
-from .. import tokens
-from . import economics, freeze_review
 
-NOTE_MAX_CHARS = 400
-LIST_MAX_ROWS = 80
+#: Longer replacements are cut here; a replacement is a takeaway, not a second copy.
+REPLACEMENT_MAX_CHARS = 4000
+HINT = "[harness: context review due]"
 
 
-def _last_call_index(conv: Conversation) -> int:
+@dataclass
+class Item:
+    seg: Segment
+    part: str                 # 'result', 'call' (one tool call's arguments) or 'answer'
+    call: int | None = None   # index in seg.tool_calls for part 'call'
+
+    def describe(self, n: int = 70) -> str:
+        if self.part == 'call':
+            fn = (self.seg.tool_calls[self.call].get('function') or {})
+            return f"{fn.get('name') or 'tool'} call ({_args(fn.get('arguments'), n)})"
+        if self.part == 'result':
+            return f"{self.seg.tool_name or 'tool'} result ({_first_line(self.seg.body, n)})"
+        return f"answer ({_first_line(self.seg.body, n)})"
+
+
+def _first_line(text: str | None, n: int = 70) -> str:
+    line = (text or "").strip().split("\n", 1)[0].replace("\r", "")
+    return line[:n] + ("..." if len(line) > n else "")
+
+
+def _args(raw, n: int = 70) -> str:
+    try:
+        obj = json.loads(raw) if isinstance(raw, str) else raw
+    except (TypeError, ValueError):
+        obj = raw
+    if isinstance(obj, dict):
+        text = " ".join(f"{k}={str(v)[:40]}" for k, v in obj.items())
+    else:
+        text = str(obj or "")
+    text = " ".join(text.split())
+    return text[:n] + ("..." if len(text) > n else "")
+
+
+def _running_batch(conv: Conversation) -> int:
+    """Index of the newest call segment: the batch that runs this curate call."""
     return max((i for i, s in enumerate(conv.segments) if s.kind == K_TOOL_CALL), default=len(conv.segments))
 
 
-def _call_args(conv: Conversation, seg) -> str:
-    """Short rendering of the arguments of the call that produced `seg`."""
-    for s in conv.segments:
-        if s.kind != K_TOOL_CALL:
+def _placed(conv: Conversation, running: bool, sources: list | None = None) -> list[tuple[Item, int]]:
+    """(item, index of its message in conv.to_messages()), oldest first."""
+    cut = _running_batch(conv) if running else len(conv.segments)
+    if sources is None:
+        sources = []
+        conv.to_messages(sources)
+    out: list[tuple[Item, int]] = []
+    seen: set[str] = set()
+    for at, (i, sid) in enumerate(sources):
+        if sid is None or i >= cut or sid in seen:
             continue
-        for tc in s.tool_calls or []:
-            if tc.get("id") == seg.tool_call_id:
-                raw = (tc.get("function") or {}).get("arguments") or ""
-                try:
-                    obj = json.loads(raw) if isinstance(raw, str) else raw
-                    if isinstance(obj, dict):
-                        raw = " ".join(f"{k}={str(v)[:60]}" for k, v in obj.items()
-                                       if k not in ("content", "new_string", "old_string", "summary"))
-                except (ValueError, TypeError):
-                    pass
-                return str(raw).replace("\n", " ")[:110]
-    return ""
-
-
-def candidates(conv: Conversation) -> list:
-    """Unfrozen tool results the agent has already seen (excludes the running batch)."""
-    cut = _last_call_index(conv)
-    return [s for i, s in enumerate(conv.segments)
-            if i < cut and i >= conv.frozen_upto and s.kind == K_TOOL_RESULT and not s.frozen]
-
-
-def unreviewed_stats(conv: Conversation) -> tuple[int, int]:
-    c = candidates(conv)
-    return len(c), sum(s.tokens() for s in c)
-
-
-def hint_text(conv: Conversation, cfg, batches_pending: int, reason: str) -> str:
-    n, tok = unreviewed_stats(conv)
-    # The answer count is the fact the default guidance's cadence refers to; the frozen
-    # benchmark text ('live') keeps the hint it ran with.
-    since = ("" if getattr(cfg, 'guidance', 'default') == 'live' else
-             f"{batches_pending} answers since the context was last curated or compacted, ")
-    return (f"[harness: context review due ({reason}) - {since}{n} unfrozen tool results, ~{tok} tok. "
-            "At the next boundary (when the current step is done), call curate_context() to list them and "
-            "drop what you no longer need, each with a one-line takeaway; unnamed results are kept verbatim. "
-            "If the work before this point is finished and the conversation has moved on, "
-            "compact_context(summary=...) is the better tool.]")
-
-
-def listing(conv: Conversation, cfg, min_tokens: int = 0) -> str:
-    rows = []
-    cands = candidates(conv)
-    shown = [s for s in cands if s.tokens() >= min_tokens]
-    review = freeze_review.plan(conv, cfg)
-    commit_ids = review["eligible_ids"]
-    for s in shown[-LIST_MAX_ROWS:]:
-        flags = []
-        if s.pinned:
-            flags.append("pinned")
-        if s.state != S_ORIGINAL:
-            flags.append(s.state)
-        if s.id in commit_ids:
-            flags.append("freezes on commit")
-        first = (s.body or "").strip().split("\n", 1)[0].replace("\r", "")[:90]
-        rows.append(f"{s.id}  {s.tool_name or '?'}  {s.tokens()} tok"
-                    + (f"  [{', '.join(flags)}]" if flags else "")
-                    + f"\n    args: {_call_args(conv, s)}\n    first: {first}")
-    total = sum(s.tokens() for s in cands)
-    hidden = len(cands) - len(shown[-LIST_MAX_ROWS:])
-    head = (f"{len(cands)} unfrozen tool results, ~{total} tok (oldest first"
-            + (f"; {hidden} smaller/older not shown" if hidden else "") + ").\n"
-            "Drop with curate_context(drop=[id or {id, note}]); the note becomes the visible stub, "
-            "the full text stays recallable. Unnamed results are kept.\n")
-    return head + "\n".join(rows)
-
-
-def _parse_drop(drop) -> list[tuple[str, str]]:
-    out = []
-    for item in drop or []:
-        if isinstance(item, dict):
-            sid, note = str(item.get("id", "")).strip(), str(item.get("note", "") or "").strip()
-        else:
-            text = str(item).strip()
-            sid, _, note = text.partition(":")
-            sid, note = sid.strip(), note.strip()
-        if sid:
-            out.append((sid, note[:NOTE_MAX_CHARS]))
+        seen.add(sid)
+        seg = conv.segments[i]
+        if seg.kind == K_TOOL_CALL:
+            out.extend((Item(seg, 'call', k), at) for k in range(len(seg.tool_calls or [])))
+        elif seg.kind == K_TOOL_RESULT:
+            out.append((Item(seg, 'result'), at))
+        elif seg.kind == K_ASSISTANT and (seg.body or "").strip():
+            out.append((Item(seg, 'answer'), at))
     return out
 
 
-def _stub(seg, note) -> str:
-    full = seg.original_body if seg.original_body is not None else seg.body
-    first = full.strip().split("\n", 1)[0].replace("\r", "")[:160]
-    return (f"[dropped by agent: {note or 'no longer needed'} | was {seg.original_tokens or seg.tokens()} tok, "
-            f"first line: {first} | recall(segment_id=\"{seg.id}\") restores it exactly]")
+def items(conv: Conversation, running: bool = True) -> list[Item]:
+    """The replaceable items, oldest first, in the order the model reads them. The newest
+    batch runs the curate call and holds no items; running=False counts it too, the way a
+    call in the next response will."""
+    return [item for item, _ in _placed(conv, running)]
 
 
-def _droppable(conv: Conversation, seg, cand_ids: set) -> str | None:
-    if seg is None:
-        return "not an active segment (archived ids are already gone)"
-    if seg.kind != K_TOOL_RESULT:
-        return "not a tool result"
-    if seg.frozen:
-        return "frozen (immutable cached prefix; only compact_context removes it)"
-    if seg.id not in cand_ids:
-        return "belongs to the running batch"
-    if seg.state == S_OFFLOADED and seg.note.startswith("dropped by agent"):
-        return "already dropped"
-    return None
+def breakpoints(conv: Conversation) -> list[tuple[int, Item]] | None:
+    """The cache breakpoints the next request sends inside the history, newest first, as
+    (reference, item): the item at or right before each rung (cache_policy.plan_rungs),
+    counted the way a curate_context call in the next response counts. Replacing an item
+    re-writes everything behind the nearest breakpoint before it. None when the provider
+    caches without breakpoints or no request was sent yet."""
+    from .. import cache_policy, tokens
+    state = conv.cache_state or {}
+    if state.get('cache_family') not in ('anthropic', 'openai') or state.get('history_hashes') is None:
+        return None
+    sources: list[tuple[int, str | None]] = []
+    history = conv.to_messages(sources)
+    # The history only grew since that request (a change resets the review counter, so no
+    # hint follows it): the planner sees the known messages and the new ones behind them.
+    known = list(state['history_hashes'])[:len(history)]
+    plan = cache_policy.plan_rungs(state, known + [''] * (len(history) - len(known)),
+                                   [tokens.count_message(m) for m in history],
+                                   state.get('views_hash'), int(state.get('views_count') or 0))
+    placed = _placed(conv, False, sources)
+    out: list[tuple[int, Item]] = []
+    for rung in sorted(plan['rungs'], reverse=True):
+        before = [k for k, (_, at) in enumerate(placed) if at <= rung]
+        if before and (not out or out[-1][0] != len(placed) - before[-1]):
+            out.append((len(placed) - before[-1], placed[before[-1]][0]))
+    return out
 
 
-def assess(conv: Conversation, cfg, todo: list[tuple], *, price: dict | None, family: str,
-           tool_overhead: int = 0, calibration: float = 1.0) -> tuple[dict, int | None, int]:
-    """(verdict, first changed index, estimated freed tokens) of dropping `todo`."""
-    segs = conv.segments
-    freed_est = sum(max(0, s.tokens() - tokens.count(_stub(s, n))) for s, n in todo)
-    index = {s.id: i for i, s in enumerate(segs)}
-    first_change = min((index[s.id] for s, _ in todo), default=None)
-    total = conv.total_tokens() + tool_overhead
-    invalidated = 0
-    if first_change is not None:
-        invalidated = max(0, total - economics.cached_boundary(conv, first_change, family, tool_overhead) - freed_est)
-    price = price or economics.rates(None, cfg.rewrite_cache_cost_ratio)
-    v = economics.verdict(freed_est, invalidated, price, economics.horizon(conv, cfg), calibration)
-    return v, first_change, freed_est
+def hint(conv: Conversation) -> str:
+    """The review hint. Where the provider caches at breakpoints it says where they lie."""
+    found = breakpoints(conv)
+    if found is None:
+        return HINT
+    if not found:
+        return HINT[:-1] + "; no cache breakpoint in the history yet]"
+    return HINT[:-1] + "; cache breakpoints " + " and ".join(
+        f"after item {n} = {item.describe(40)}" for n, item in found) + "]"
 
 
-def apply_drops(conv: Conversation, session_id: str, todo: list[tuple]) -> tuple[int, list[str]]:
-    freed, done = 0, []
-    for seg, note in todo:
-        full = seg.original_body if seg.original_body is not None else seg.body
-        seg.blob_id = seg.blob_id or put_blob(session_id, seg.id, full)
-        if seg.pinned:  # an explicit drop overrides the agent's own earlier pin
-            seg.pinned = False
-            seg.pin_until_batch = None
-            seg.pin_scope = "manual"
-        gained = seg.rewrite(_stub(seg, note), S_OFFLOADED, "dropped by agent")
-        freed += gained
-        done.append(f"{seg.id} -{gained} tok")
-    return freed, done
+def parse_pairs(pairs) -> tuple[list[tuple[int, str]], list[str]]:
+    """(reference, replacement) pairs from what the model sent: a flat list
+    [ref1, text1, ref2, text2, ...], a list of [ref, text] pairs or {reference, replacement}
+    objects, or an object {ref: text}."""
+    problems: list[str] = []
+    flat: list = []
+    if isinstance(pairs, dict):
+        for k, v in pairs.items():
+            flat += [k, v]
+    elif isinstance(pairs, (list, tuple)):
+        for p in pairs:
+            if isinstance(p, dict):
+                flat += [p.get('reference', p.get('ref')), p.get('replacement', p.get('text', ''))]
+            elif isinstance(p, (list, tuple)) and len(p) == 2:
+                flat += list(p)
+            else:
+                flat.append(p)
+    elif pairs not in (None, ""):
+        flat = [pairs]
+    out: list[tuple[int, str]] = []
+    if len(flat) % 2:
+        problems.append(f"{flat[-1]!r} has no replacement")
+        flat = flat[:-1]
+    for ref, text in zip(flat[0::2], flat[1::2]):
+        try:
+            n = int(str(ref).strip().lstrip('#'))
+        except (TypeError, ValueError):
+            problems.append(f"{ref!r} is not a reference (1 = the newest item, 2 the one before, ...)")
+            continue
+        out.append((n, "" if text is None else str(text).strip()))
+    return out, problems
 
 
-def curate(conv: Conversation, cfg, session_id: str, *, drop=None, rest: str = "keep",
-           commit: bool = True, dry_run: bool = False, tool_overhead: int = 0,
-           price: dict | None = None, family: str = "breakpoints",
-           calibration: float = 1.0) -> dict:
-    if rest not in ("keep", "auto"):
-        raise ValueError("rest must be 'keep'")
-    segs = conv.segments
-    cand_ids = {s.id for s in candidates(conv)}
-    before = conv.total_tokens() + tool_overhead
-    todo, problems = [], []
-    for sid, note in _parse_drop(drop):
-        seg = conv.by_id(sid)
-        why = _droppable(conv, seg, cand_ids)
-        if why:
-            problems.append(f"{sid}: {why}")
-        else:
-            todo.append((seg, note))
-    v, first_change, freed_est = assess(conv, cfg, todo, price=price, family=family,
-                                        tool_overhead=tool_overhead, calibration=calibration)
-    suffix = sum(s.tokens() for s in segs[first_change:]) if first_change is not None else 0
-    report = {"dry_run": bool(dry_run), "dropped": [], "problems": problems}
-    if rest == "auto":
-        # Chats started before the age-based masking was removed may still pass it.
-        report["note"] = "rest='auto' no longer masks anything; results you do not name are kept verbatim"
-    if dry_run:
-        report.update({"freed_estimate": freed_est, "would_drop": [s.id for s, _ in todo],
-                       "cache_rewrite_tokens": suffix, "invalidated_tokens": v["invalidated_tokens"],
-                       "cache_breakeven_requests": v["breakeven_requests"],
-                       "before_tokens": before})
+def _stub(seg: Segment, text: str) -> str:
+    return (f"[replaced: {text} | " if text else "[replaced | ") + \
+        f'recall(segment_id="{seg.id}") restores the original]'
+
+
+def _original(seg: Segment) -> str:
+    """What recall returns: the body, and for a call segment also its calls' arguments."""
+    body = seg.original_body if seg.original_body is not None else (seg.body or "")
+    if seg.kind != K_TOOL_CALL:
+        return body
+    calls = seg.observation.get('original_tool_calls') or seg.tool_calls or []
+    parts = [body] if body.strip() else []
+    for tc in calls:
+        fn = tc.get('function') or {}
+        parts.append(f"[tool call {fn.get('name') or 'tool'}]\n{fn.get('arguments') or ''}")
+    return "\n\n".join(parts)
+
+
+def replace(item: Item, text: str, session_id: str) -> int:
+    """Replace one item by `text`. Returns the tokens freed (negative when it grew)."""
+    seg = item.seg
+    before = seg.tokens()
+    if seg.kind == K_TOOL_CALL and 'original_tool_calls' not in seg.observation:
+        seg.observation['original_tool_calls'] = json.loads(json.dumps(seg.tool_calls or []))
+    if not seg.blob_id:
+        seg.blob_id = put_blob(session_id, seg.id, _original(seg))
+    if seg.pinned:   # replacing it overrides the agent's own earlier pin
+        seg.pinned = False
+        seg.pin_until_batch = None
+        seg.pin_scope = "manual"
+    if item.part == 'call':
+        call = seg.tool_calls[item.call]
+        call['function'] = {**(call.get('function') or {}),
+                            'arguments': json.dumps({"replaced": text, "recall_segment_id": seg.id},
+                                                    ensure_ascii=False)}
+    else:
+        if seg.original_body is None:
+            seg.original_body = seg.body
+        seg.body = _stub(seg, text)
+    seg.state = S_OFFLOADED
+    seg.note = "replaced by agent"
+    seg.invalidate()
+    return before - seg.tokens()
+
+
+def curate(conv: Conversation, session_id: str, pairs=None, *, tool_overhead: int = 0) -> dict:
+    """Apply the agent's (reference, replacement) pairs. Returns the report the tool shows
+    (`lines`) and the compaction log keeps (dropped, freed, problems, token counts)."""
+    todo, problems = parse_pairs(pairs)
+    report = {"replaced": [], "dropped": [], "problems": problems, "freed": 0}
+    if not todo and not problems:
         return report
-
-    st = conv.compaction_state
-    freed, done = apply_drops(conv, session_id, todo)
-    report["dropped"] = done
-    review = freeze_review.plan(conv, cfg)
-    if commit:
-        newly = conv.freeze_prefix(review["end"])
-        st["reviewed_through_seq"] = max((s.seq for s in conv.segments[:conv.frozen_upto]), default=-1)
-        st["batches"] = st["new_tokens"] = 0
+    found = items(conv)
+    before = conv.total_tokens() + tool_overhead
+    chosen: dict[int, tuple[Item, str]] = {}
+    for n, text in todo:
+        if not 1 <= n <= len(found):
+            problems.append(f"{n}: there are {len(found)} items (1 = the newest)")
+            continue
+        if len(text) > REPLACEMENT_MAX_CHARS:
+            text = text[:REPLACEMENT_MAX_CHARS] + " [cut]"
+        chosen[n] = (found[-n], text)            # a reference named twice: the last text wins
+    freed = 0
+    for n in sorted(chosen):
+        item, text = chosen[n]
+        what = item.describe()                   # before the replacement changes it
+        gained = replace(item, text, session_id)
+        freed += gained
+        report["replaced"].append(f"{n}: {what}")
+        report["dropped"].append(f"{item.seg.id} -{gained} tok" if gained >= 0 else f"{item.seg.id} +{-gained} tok")
+    if chosen:
+        st = conv.compaction_state
+        st["batches"] = 0
+        st.pop("new_tokens", None)
         st.pop("review_due", None)
         st["last_reason"] = "agent review"
-        report["newly_frozen"] = newly
-        report["frozen_segments"] = conv.frozen_upto
-    after = conv.total_tokens() + tool_overhead
-    suffix = sum(s.tokens() for s in segs[first_change:]) if first_change is not None else 0
-    report.update({"freed": freed, "before_tokens": before, "after_tokens": after,
-                   "cache_rewrite_tokens": suffix,
-                   "cache_breakeven_requests": v["breakeven_requests"] if todo else None})
-    st.setdefault("agent_reviews", []).append({"batch": st.get("batch_clock", 0), "freed": freed,
-                                               "dropped": len(report["dropped"])})
-    del st["agent_reviews"][:-50]
+        st.setdefault("agent_reviews", []).append({"batch": st.get("batch_clock", 0), "freed": freed,
+                                                   "dropped": len(chosen)})
+        del st["agent_reviews"][:-50]
+    report.update({"freed": freed, "before_tokens": before, "after_tokens": conv.total_tokens() + tool_overhead})
     return report
+
+
+def report_text(report: dict) -> str:
+    if not report["replaced"] and not report["problems"]:
+        return "curate_context: nothing replaced (no reference/replacement pairs given)."
+    lines = []
+    if report["replaced"]:
+        lines.append("curate_context replaced:")
+        lines += [f"  {r}" for r in report["replaced"]]
+        lines.append('recall(segment_id) in a stub restores that original.')
+    if report["problems"]:
+        lines.append("not replaced: " + "; ".join(report["problems"]))
+    return "\n".join(lines)

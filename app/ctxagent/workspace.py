@@ -1,4 +1,4 @@
-"""Explicit live document views, outside compactable/frozen conversation history.
+"""Explicit live document views, outside the conversation history.
 
 Only view specifications persist; file contents are refreshed from disk before
 requests. Unavailable/oversized versions replace the payload with a visible error,

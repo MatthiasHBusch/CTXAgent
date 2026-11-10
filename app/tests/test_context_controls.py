@@ -1,7 +1,6 @@
 """Regressions for the 2026-10-15 context-control changes, without model calls.
 
 * grep_search never returns a silent false negative (large files, globs, limits).
-* a review never freezes a result of the newest N tool batches.
 * the `pin` tool: pin / timed expiry / unpin / restore of a shortened result.
 * an empty model reply does not end a turn silently.
 """
@@ -11,7 +10,7 @@ import unittest
 from pathlib import Path
 
 from ctxagent import tools
-from ctxagent.compaction import CompactionEngine, freeze_review
+from ctxagent.compaction import CompactionEngine, curate
 from ctxagent.config import CompactionConfig
 from ctxagent.segments import Conversation, K_SYSTEM, K_TOOL_CALL, K_TOOL_RESULT, K_USER
 from tests.test_compaction import fake_complete
@@ -102,29 +101,6 @@ class LineEndingTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(new.read_bytes(), b'p\nq\n')
 
 
-class BatchProtectionTests(unittest.IsolatedAsyncioTestCase):
-    def test_recent_batches_not_frozen_by_a_review(self):
-        c = Conversation()
-        c.new('system', K_SYSTEM, 'sys', pinned=True)
-        c.new('user', K_USER, 'go')
-        older = [batch(c, n=1)[0] for _ in range(4)]
-        last = batch(c, n=6)      # one wide batch: more results than protected_recent_observations
-        batch(c, n=1)             # the running batch
-        cfg = CompactionConfig(review_before_freeze=True, hot_zone_tokens=0,
-                               protected_recent_observations=2, protected_recent_batches=2)
-        review = freeze_review.plan(c, cfg)
-        self.assertFalse(any(s.id in review['eligible_ids'] for s in last))
-        self.assertTrue(all(s.id in review['eligible_ids'] for s in older))
-
-    def test_recent_batch_ids(self):
-        c = Conversation()
-        a = batch(c, 2)
-        b = batch(c, 3)
-        ids = freeze_review.recent_batch_ids(c, 1)
-        self.assertTrue(all(s.id in ids for s in b))
-        self.assertFalse(any(s.id in ids for s in a))
-
-
 class PinToolTests(unittest.IsolatedAsyncioTestCase):
     def session(self, conv):
         from tests.test_productivity import make_session
@@ -142,7 +118,7 @@ class PinToolTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(target.pinned)
         self.assertEqual(target.body, full)          # restored to the full original
         self.assertIn('restored', r.text)
-        cfg = CompactionConfig(rewrite_interval_batches=100, hot_zone_tokens=10_000_000)
+        cfg = CompactionConfig(rewrite_interval_batches=100)
         eng = CompactionEngine('t', cfg, fake_complete)
         for _ in range(2):
             batch(c, 1)
@@ -186,8 +162,9 @@ class ManualCompactionTests(unittest.IsolatedAsyncioTestCase):
         from ctxagent.compaction import manual
         c, old, new, running = self.build()
         keep = old[2][0]
+        keep.pinned, keep.pin_scope = True, 'manual'      # a manual pin stays verbatim
         before = c.total_tokens()
-        rep = manual.compact(c, 't', summary=self.SUMMARY, keep_ids=[keep.id])
+        rep = manual.compact(c, 't', summary=self.SUMMARY)
         self.assertGreater(rep['saved_tokens'], 0)
         self.assertLess(c.total_tokens(), before)
         kinds = [s.kind for s in c.segments]
@@ -200,21 +177,18 @@ class ManualCompactionTests(unittest.IsolatedAsyncioTestCase):
         self.assertIsNotNone(c.archived_by_id(old[0][0].id))   # ... but recallable
         self.assertTrue(all(s.id in ids for s in new + running))
         self.assertIn(old[0][0].id, c.segments[1].body)   # the index names archived results
-        self.assertEqual(c.frozen_upto, 2)
 
-    def test_dry_run_and_guards(self):
+    def test_guards_and_until(self):
         from ctxagent.compaction import manual
         c, old, new, running = self.build()
         n = len(c.segments)
-        rep = manual.compact(c, 't', summary='', dry_run=True)
-        self.assertTrue(rep['dry_run'])
+        with self.assertRaises(ValueError):
+            manual.compact(c, 't', summary='   ')     # empty: nothing would remain (no minimum length any more)
+        with self.assertRaises(ValueError):
+            manual.compact(c, 't', summary=self.SUMMARY, until=999)
         self.assertEqual(len(c.segments), n)
-        self.assertIsNotNone(rep['cache_breakeven_requests'])
-        with self.assertRaises(ValueError):
-            manual.compact(c, 't', summary='too short')
-        with self.assertRaises(ValueError):
-            manual.compact(c, 't', summary=self.SUMMARY, keep_from='no-such-id')
-        rep2 = manual.compact(c, 't', summary=self.SUMMARY, keep_from='current_batch')
+        rep2 = manual.compact(c, 't', summary=self.SUMMARY, until=1)   # up to the newest item: all but the running batch
+        self.assertIsNotNone(rep2['cache_breakeven_requests'])
         self.assertTrue(all(s.id in {x.id for x in c.segments} for s in running))
         self.assertNotIn(new[0].id, {x.id for x in c.segments})
         self.assertGreater(rep2['saved_tokens'], 0)
@@ -222,9 +196,7 @@ class ManualCompactionTests(unittest.IsolatedAsyncioTestCase):
 
 class AgentCuratedReviewTests(unittest.IsolatedAsyncioTestCase):
     def cfg(self, **kw):
-        base = dict(rewrite_policy='agent', review_before_freeze=True, rewrite_interval_batches=3,
-                    hot_zone_tokens=3000, deep_enabled=False,
-                    protected_recent_observations=1, protected_recent_batches=1)
+        base = dict(rewrite_policy='agent', rewrite_interval_batches=3, deep_enabled=False)
         base.update(kw)
         return CompactionConfig(**base)
 
@@ -242,10 +214,9 @@ class AgentCuratedReviewTests(unittest.IsolatedAsyncioTestCase):
             batch(c, 1)
             reports.append(await eng.run(c, 2_000_000))
         self.assertTrue(all(s.state == 'original' for s in c.segments if s.kind == K_TOOL_RESULT))
-        self.assertEqual(c.frozen_upto, 0)
         self.assertIn('review_hint', reports[-1])
         newest = [s for s in c.segments if s.kind == K_TOOL_RESULT][-1]
-        self.assertIn('curate_context()', newest.body)
+        self.assertTrue(newest.body.endswith(curate.HINT))
         # not repeated on the very next batch
         batch(c, 1)
         r = await eng.run(c, 2_000_000)
@@ -261,7 +232,6 @@ class AgentCuratedReviewTests(unittest.IsolatedAsyncioTestCase):
             hints += 'review_hint' in await eng.run(c, 2_000_000)
         self.assertEqual(hints, 3)
         self.assertTrue(all(s.state == 'original' for s in c.segments if s.kind == K_TOOL_RESULT))
-        self.assertEqual(c.frozen_upto, 0)
 
     async def test_deep_pressure_is_still_automatic(self):
         c = self.build()
@@ -273,64 +243,6 @@ class AgentCuratedReviewTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(r['deep'])
         self.assertTrue(any(s.kind == 'summary' for s in c.segments))
 
-    def test_curate_drop_note_commit(self):
-        from ctxagent.compaction import curate
-        c = self.build()
-        res = [batch(c, 1)[0] for _ in range(5)]
-        running = batch(c, 1)[0]
-        cfg = self.cfg()
-        c.compaction_state.update(batches=5, new_tokens=999, review_due={'since_batch': 1})
-        listing = curate.listing(c, cfg)
-        self.assertIn(res[0].id, listing)
-        self.assertNotIn(running.id, listing)                  # the running batch is not offered
-        full = res[0].body
-        n = len(c.segments)
-        dry = curate.curate(c, cfg, 't', drop=[res[0].id], dry_run=True)
-        self.assertEqual(res[0].body, full)
-        self.assertGreater(dry['freed_estimate'], 0)
-        self.assertEqual(len(c.segments), n)
-        rep = curate.curate(c, cfg, 't', drop=[{'id': res[0].id, 'note': 'lines 0-399, nothing relevant'},
-                                                f'{res[1].id}: dead log', running.id, 'nope'])
-        self.assertIn('nothing relevant', res[0].body)
-        self.assertIn(f'recall(segment_id="{res[0].id}")', res[0].body)
-        self.assertIn('dead log', res[1].body)
-        from ctxagent.blobs import get_blob
-        self.assertEqual(get_blob(res[0].blob_id), full)      # lossless
-        self.assertTrue(all(s.state == 'original' for s in res[2:]))   # unnamed results kept verbatim
-        self.assertEqual(running.state, 'original')
-        self.assertEqual(len(rep['problems']), 2)
-        self.assertGreater(rep['freed'], 0)
-        st = c.compaction_state
-        self.assertEqual(st['batches'], 0)
-        self.assertNotIn('review_due', st)
-        self.assertGreater(c.frozen_upto, 0)
-        frozen = next(s for s in c.segments[:c.frozen_upto] if s.kind == K_TOOL_RESULT)
-        again = curate.curate(c, cfg, 't', drop=[frozen.id])
-        self.assertIn('frozen', again['problems'][0])
-
-    def test_rest_auto_from_older_chats_masks_nothing(self):
-        from ctxagent.compaction import curate
-        c = self.build()
-        res = [batch(c, 1)[0] for _ in range(6)]
-        batch(c, 1)
-        rep = curate.curate(c, self.cfg(), 't', drop=[], rest='auto')
-        self.assertIn('no longer masks', rep['note'])
-        self.assertTrue(all(s.state == 'original' for s in res))
-
-    def test_session_tool_list_vs_commit(self):
-        from tests.test_productivity import make_session
-        c = self.build()
-        [batch(c, 1) for _ in range(4)]
-        batch(c, 1)
-        s = make_session(c)
-        s.cfg.compaction = self.cfg()
-        listing = s._curate_context_tool()
-        self.assertIn('unfrozen tool results', listing.text)
-        self.assertEqual(c.frozen_upto, 0)
-        done = s._curate_context_tool(drop=[])
-        self.assertFalse(done.error, done.text)
-        self.assertGreater(c.frozen_upto, 0)
-        self.assertTrue(all(x.state == 'original' for x in c.segments if x.kind == K_TOOL_RESULT))
 
 
 if __name__ == '__main__':

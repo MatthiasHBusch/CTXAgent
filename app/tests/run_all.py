@@ -17,7 +17,7 @@ MODULES = (
     'tests.test_flex',
     'tests.test_chat_fixes',
     'tests.test_context_report',
-    'tests.test_freeze_review',
+    'tests.test_result_delivery',
     'tests.test_workspace',
     'tests.test_document_edits',
     'tests.test_document_catalog',
@@ -42,6 +42,8 @@ MODULES = (
     'tests.test_view_pairing',
     'tests.test_token_calibration',
     'tests.test_new_chat_defaults',
+    'tests.test_curate_refs', 'tests.test_cache_rungs', 'tests.test_compact_until', 'tests.test_review_hint',
+    'tests.test_keepalive',
 )
 
 

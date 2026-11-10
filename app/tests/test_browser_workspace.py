@@ -76,8 +76,8 @@ class BrowserTests(unittest.IsolatedAsyncioTestCase):
         self.assertGreater(self.s.stats()['browser_tokens'],0)
         self.assertGreater(report(self.s.conv,self.s.cfg)['context']['browser_workspace_tokens_estimate'],0)
 
-    async def test_close_replaces_text_and_native_pixels_without_mutating_frozen_history(self):
-        self.s.conv.new('user',K_USER,'frozen request');self.s.conv.freeze_prefix(2)
+    async def test_close_replaces_text_and_native_pixels_without_mutating_the_history(self):
+        self.s.conv.new('user',K_USER,'earlier request')
         before=json.dumps(self.s.conv.to_messages())
         data=self.page('VERY_LONG_FULL_PAGE ' * 100)
         tab=self.attach(data,images=[self.image()],max_tokens=6000)
@@ -362,9 +362,9 @@ class BrowserTests(unittest.IsolatedAsyncioTestCase):
             events=[ev async for ev in self.s._run_turn('Research')]
         self.assertTrue(any(ev.get('type')=='error' and 'preflight' in ev['error'] for ev in events))
 
-    async def test_prompt_injection_once_and_frozen_prefix_cache_unchanged(self):
-        self.s.conv.new('user',K_USER,'Research');self.s.conv.freeze_prefix(2)
-        frozen=json.dumps(self.s.conv.to_messages()[:self.s.conv.frozen_upto])
+    async def test_prompt_injection_once_and_the_history_unchanged(self):
+        self.s.conv.new('user',K_USER,'Research')
+        frozen=json.dumps(self.s.conv.to_messages()[:2])
         tab=self.attach(self.page('UNIQUE_BROWSER_FACT'))
         self.s.persist()
         captured=[]
@@ -375,7 +375,7 @@ class BrowserTests(unittest.IsolatedAsyncioTestCase):
         with patch.object(agent.llm,'stream_chat',side_effect=stream):
             async for _ in self.s._run_turn(''):pass
         self.assertEqual(json.dumps(captured[0]).count('UNIQUE_BROWSER_FACT'),1)
-        self.assertEqual(json.dumps(self.s.conv.to_messages()[:self.s.conv.frozen_upto]),frozen)
+        self.assertEqual(json.dumps(self.s.conv.to_messages()[:2]),frozen)
         self.s.conv.browser.close(tab)
         self.assertNotIn('UNIQUE_BROWSER_FACT',json.dumps(self.s.conv.to_messages()))
 

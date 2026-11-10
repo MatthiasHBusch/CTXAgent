@@ -340,6 +340,19 @@ class Recorder:
               finish=finish, tool_calls=tool_calls, text_chars=text_chars, ms=ms,
               error=excerpt(error, 300) if error else None, cache_break=reasons[:4] or None)
 
+    def keepalive(self, *, entry: dict | None, ms: int, error: str | None = None) -> None:
+        """A prompt-cache keep-alive while a tool batch ran (agent._keep_cache_warm): billed like
+        a request, but no model answer; the report counts it apart."""
+        if not enabled():
+            return
+        u = (entry or {}).get("usage") or {}
+        write(self.chat, "request", turn=self.turn, keepalive=True,
+              model=(entry or {}).get("model") or self.s.cfg.model, provider=(entry or {}).get("provider"),
+              prompt_tokens=u.get("prompt_tokens"), uncached=u.get("input"), cache_read=u.get("cache_read"),
+              cache_write=u.get("cache_write"), output=u.get("completion_tokens"), cost=u.get("cost"),
+              context=self._context_estimate(), window=self.s.cfg.context_window, finish="keepalive",
+              tool_calls=0, ms=ms, error=excerpt(error, 300) if error else None)
+
     def answer(self) -> None:
         self.since["answers"] += 1
 

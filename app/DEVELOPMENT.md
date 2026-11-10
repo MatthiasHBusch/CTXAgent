@@ -8,7 +8,7 @@ tune and measure while it runs.
 
 * [RESEARCH.md](RESEARCH.md) — how the shipping agents and the literature do compaction, and what this design takes from each.
 * [MODELS.md](MODELS.md) — which model should do the compaction work, measured rather than assumed.
-* [FREEZE_REVIEW.md](FREEZE_REVIEW.md) — opt-in review before freezing, bounded result delivery, and the history of the linked review cycle.
+* [FREEZE_REVIEW.md](FREEZE_REVIEW.md) — the review before freezing (removed on 2026-11-10 with the frozen prefix), bounded result delivery, and the history of the linked review cycle.
 * [DOCUMENT_WORKSPACE.md](DOCUMENT_WORKSPACE.md) — explicit current document views, automatic refresh, late-bound format tool catalogs (PDF/DOCX/XLSX/OBJ/STL), reviewed edit plans, and safe read batching.
 * [AGENTS_AND_BROWSING.md](AGENTS_AND_BROWSING.md) — parallel persistent child agents, inherited context controls, browsing, cost aggregation and Flex fallback safeguards.
 * [DESKTOP_APP.md](DESKTOP_APP.md) — the CTXAgent desktop app: native window, installer, data and log locations, importing old chats.
@@ -109,21 +109,29 @@ call, rare). Between deep compactions the engine never changes a message, so the
 provider's prompt cache keeps hitting on the whole history. In self-steered chats
 the model also manages its own context (see below).
 
-### The cache-stable split (free, always)
+### Cache points (free, always)
 
-Only the last **50,000 tokens** of history (configurable) stay *mutable*.
-Everything older is frozen byte-identically and never touched again, so the
-provider's prompt cache keeps hitting on the whole prefix.
+Rewriting an old message to save 2,000 tokens re-writes the provider's cache for
+every token after it; that is the constraint the rest of the design bends around.
+Anthropic caches only where a request puts a breakpoint (at most 4 per request), and
+an entry lives 5 minutes from the last request that read or wrote it. So every
+request marks the static system prompt, two **rungs** in the history and the tail
+(`cache_policy.plan_rungs`); marking a rung again keeps its entry warm. A rung is
 
-This is the constraint the rest of the design bends around, and it is the thing
-most compaction schemes get wrong: rewriting an old message to save 2,000 tokens
-invalidates the cache for every token after it, and you pay far more than you
-saved. `llm.py` also places explicit `cache_control` breakpoints at the end of
-the system prompt and at the end of the frozen prefix, so the freezing actually
-buys something.
+* the last unchanged message before a change (a curate replaced an item, a live
+  view changed): the next change behind it re-writes only what follows, and
+* the previous request's tail once the history behind the newest rung has grown by
+  20k tokens (or the request appended more messages than a breakpoint's 20-block
+  look-back reaches).
 
-The frozen boundary is **monotone** — it only moves forward. A segment that has
-been sent in its final form stays in that form.
+A change re-writes from the newest valid rung before it, so replacing recent items
+is cheap; replacing an item before both rungs re-writes everything after the system
+prompt. Live views (documents, browser tabs) go behind the previous request's end when
+they appear or change, and stay there while they are unchanged; the message before
+them is one of the two rungs as long as they are open. A view change therefore
+re-writes the views and the history that came after them, not the history before.
+Until 2026-11-10 everything older than the newest 50k tokens was frozen instead and
+could not be curated.
 
 ### Deep compaction (one LLM call, rare)
 
@@ -154,11 +162,15 @@ protection is transient, not a permanent pin added to every user message.
 
 With **Engine › Self-steered context management** on, the model gets
 `compact_context` (replace finished work by its own handoff summary) and
-`curate_context` (drop dead tool results, each with a one-line takeaway), and a
-short "Managing your own context" section in the system prompt. When a review is
-due (every N tool batches, after much new context, or under pressure) the engine
-appends a one-line hint to the newest tool result. Deep compaction stays automatic
-as the safety net.
+`curate_context` (replace items it no longer needs, counted back from the newest, by
+its own short text), and a short "Managing your own context" section in the system
+prompt. When a review is due (every N tool batches, or under pressure) the engine
+appends `[harness: context review due; cache breakpoints after item 6 = grep_search
+result (a.py:1 foo) and after item 10 = ...]` to the newest tool result: the two rungs
+of the next request, as curate references with a few words of the item, so the model
+sees which items are re-written together. `compact_context(summary, until)` and
+`curate_context` are no entries of the tool selection: they come and go with the
+switch. Deep compaction stays automatic as the safety net.
 
 ### Removed: the incremental tiers
 
@@ -441,20 +453,20 @@ has.
 ```
 ctxagent/
   config.py          SessionConfig + every compaction knob
-  segments.py        the Segment model; rendering to chat messages; the frozen-prefix invariant
+  segments.py        the Segment model; rendering to chat messages
   tokens.py          counting and head/tail truncation
   blobs.py           disk store for archived and dropped content
   llm.py             OpenRouter client, cache-breakpoint injection, usage passthrough
+  cache_policy.py    which cache points a request sends (rungs), prefix diagnostics
   tools.py           tool registry, sandbox, resource keys
   agent.py           the agent loop
   server.py          FastAPI + SSE
   compaction/
-    engine.py        freezing, review hints, deep compaction and budget enforcement
+    engine.py        review hints, deep compaction and budget enforcement
     deep_plan.py     whole-prompt budget and protected tool-group planner
-    freeze_review.py which results may freeze (fresh and protected ones may not)
-    curate.py        curate_context (agent-curated drops)
+    curate.py        curate_context (the agent replaces items by its own text)
     manual.py        compact_context (agent-written handoff)
-    economics.py     cache break-even figures for curate and compact
+    economics.py     cache break-even figures for compact_context
     summarize.py     the 9-section deep summary
   readers/
     __init__.py      kind detection, extract_text, outline dispatch
@@ -500,7 +512,7 @@ tests/               engine tests, reader tests, cost benchmark, model eval
   per Mtok, the model's context length, and what a *full* context costs per
   request. That last number is the one that matters — at 700k context a
   $10/Mtok model is **$7 per request** before cache hits, which is precisely
-  what the frozen prefix exists to avoid. Both are per chat — an existing chat keeps
+  what the cache points exist to avoid. Both are per chat — an existing chat keeps
   the settings it was created with, so change them in **Settings** if you want
   the new defaults applied to an old chat.
 * The agent model and the compaction/summary model are both set in **Settings**;
@@ -511,8 +523,8 @@ tests/               engine tests, reader tests, cost benchmark, model eval
   compaction at 90 % of it keeps a request below 630k. Raise it in **Settings**
   if you'd rather not compact.
 * Explicit cache breakpoints are only emitted for `anthropic/*` models, which is
-  where OpenRouter requires them; other providers cache automatically and the
-  frozen prefix still helps.
+  where OpenRouter requires them; other providers cache the unchanged prefix
+  automatically.
 * Optional document dependencies: `pymupdf` (PDF), `python-docx`, `python-pptx`,
   `openpyxl`/`pandas` (spreadsheets). Each is probed at call time — without one
   you get a message naming the package, and everything else keeps working.
@@ -573,9 +585,13 @@ Optional UI test: install `requirements-dev.txt`, then run
 
 ### Rewrite cadence and research tools
 
-Review hints default to every 10 completed tool batches, with immediate
-large-output/pressure overrides; freezing and checkpoints still happen every
-batch. Configure in Engine. See COMPACTION_CADENCE.md for the offline trade-off
+Review hints default to every 20 completed tool batches, earlier only under
+pressure (70 % of the window), never more often than the interval; checkpoints
+still happen every batch. Configure in Engine. Until 2026-11-10 a
+hint also came after 20k new tokens; in a long game-project session (INSIGHTS.md) the
+curates that followed hints within 12 batches freed little for the same rewrite
+and lost money, so the token trigger and its setting were removed and the
+interval went from 10 to 20. See COMPACTION_CADENCE.md for the offline trade-off
 analysis, rather than treating cache-hit percentage alone as the objective.
 
 Optional research/science tools: scholarly_search, doi_lookup, record_evidence,

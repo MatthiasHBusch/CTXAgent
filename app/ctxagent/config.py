@@ -23,7 +23,7 @@ DB_PATH = DATA_DIR / "ctxagent.db"
 
 # Overridable for local logging/accounting proxies; inherited by delegated workers.
 OPENROUTER_URL = os.environ.get("CTXAGENT_OPENROUTER_URL") or "https://openrouter.ai/api/v1/chat/completions"
-BACKEND_BUILD = 'ctxagent-defaults-v1'
+BACKEND_BUILD = 'ctxagent-curate-refs-v1'
 
 
 def default_tools():
@@ -97,26 +97,24 @@ class CompactionConfig:
     Self-steered chats (rewrite_policy='agent') also get compact_context and curate_context
     and review hints; deep compaction stays their safety net.
 
-    Invariants: segments before the frozen boundary keep their bytes (cache safety); deep
-    compaction keeps the newest tool group and the recent user turns verbatim.
+    Deep compaction keeps the newest tool group and the recent user turns verbatim. Nothing
+    is frozen: curate_context may replace any item, and the cache points each request sends
+    follow the history (cache_policy.plan_rungs).
     """
 
     enabled: bool = True
     # Target TOTAL post-compaction context / pre-compaction context, not a saving.
     deep_target_ratio: float = 0.10
 
-    # ---- The cache-stable split -------------------------------------------
-    # Recent working tail. Without review_before_freeze everything older is frozen
-    # (byte-stable, cached) on every cycle; with it, the frozen prefix advances only when
-    # the model curates or compacts, and after a deep compaction.
-    hot_zone_tokens: int = 50_000
-    review_before_freeze: bool = False
+    # (The frozen prefix - hot_zone_tokens, review_before_freeze, protected_recent_
+    # observations/batches - was removed on 2026-11-10; old settings are ignored.)
     # Lossless first-delivery cap for large tool results; 0 = off. Recall is exempt.
     initial_result_max_tokens: int = 0
-    # Review hints (self-steered): due every N completed tool batches, after this many new
-    # tokens, or once the context passes this share of the window.
-    rewrite_interval_batches: int = 10
-    rewrite_max_new_tokens: int = 20_000
+    # Review hints (self-steered): due every N completed tool batches, or once the context
+    # passes this share of the window; never more often than every N batches. (A trigger on
+    # new tokens since the last review, rewrite_max_new_tokens, was removed on 2026-11-10:
+    # early curates freed little for the same rewrite; old settings are ignored.)
+    rewrite_interval_batches: int = 20
     rewrite_pressure_ratio: float = 0.70
     # Scale the local token estimate by provider-reported prompt tokens (median ratio of
     # the last requests). The local tokenizer undercounts e.g. Claude by up to ~40%, so
@@ -134,10 +132,6 @@ class CompactionConfig:
     # the safety net.
     rewrite_policy: str = 'auto'
 
-    # Not frozen before the model has seen them: the newest N tool results, and every
-    # result of the newest N tool batches (a batch's results are read in the next turns).
-    protected_recent_observations: int = 12
-    protected_recent_batches: int = 3
     # Deep compaction keeps the last N user turns verbatim.
     protected_recent_user_turns: int = 2
 
@@ -174,6 +168,13 @@ class CompactionConfig:
     # conversation prefix with the instruction appended (cache reads) instead of a fresh
     # prompt. Falls back to the fresh prompt when the cache has likely expired.
     summary_share_prefix: bool = True
+    # Claude models (direct Anthropic API, or OpenRouter): while a tool batch runs longer than
+    # the 5-minute cache lifetime (builds, test suites, job_wait, agent_wait), re-send the last
+    # request without output (max_tokens 0 direct, 1 on OpenRouter) shortly before the cache
+    # expires. It bills a cache read of the prompt; an expired cache would be written again at
+    # 25x that price (Opus 5.5). After half as many keep-alives as one rewrite costs, the cache
+    # is let go (agent._keep_cache_warm).
+    cache_keepalive: bool = True
 
     # ---- Guidance -----------------------------------------------------------
     # System-prompt variant of the "Managing your own context" section (agent.py), present
@@ -204,18 +205,14 @@ class CompactionConfig:
             if not 0.01 <= value <= 0.5:
                 raise ValueError('deep_target_ratio must be between 0.01 and 0.5')
             clean['deep_target_ratio'] = value
-        if 'protected_recent_batches' in clean:
-            clean['protected_recent_batches'] = max(0, min(50, int(clean['protected_recent_batches'])))
         if 'rewrite_interval_batches' in clean:
             clean['rewrite_interval_batches'] = max(1, min(100, int(clean['rewrite_interval_batches'])))
-        if 'rewrite_max_new_tokens' in clean:
-            clean['rewrite_max_new_tokens'] = max(1000, min(1000000, int(clean['rewrite_max_new_tokens'])))
         if 'rewrite_pressure_ratio' in clean:
             value = float(clean['rewrite_pressure_ratio'])
             if not 0.1 <= value <= 0.95:
                 raise ValueError('rewrite_pressure_ratio must be between 0.1 and 0.95')
             clean['rewrite_pressure_ratio'] = value
-        for key in ('calibrate_tokens', 'review_before_freeze', 'summary_share_prefix'):
+        for key in ('calibrate_tokens', 'summary_share_prefix', 'cache_keepalive'):
             if key in clean and not isinstance(clean[key], bool):
                 raise ValueError(f'{key} must be a boolean')
         if 'rewrite_cache_cost_ratio' in clean:

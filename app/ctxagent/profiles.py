@@ -86,7 +86,7 @@ def _all_tools() -> list[str]:
 #: 90 % of the window.
 _SELF_STEERED = {
     "summary_model": "", "rewrite_policy": "agent", "rewrite_interval_batches": 25,
-    "review_before_freeze": True, "initial_result_max_tokens": 8_000, "hot_zone_tokens": 40_000,
+    "initial_result_max_tokens": 8_000,
     "deep_trigger_ratio": 0.9, "summary_max_tokens": 3_000,
 }
 #: Engine-managed starters: the engine defaults (deep compaction at 75 % of the window),

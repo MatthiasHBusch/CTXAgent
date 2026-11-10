@@ -8,7 +8,7 @@ APP_NAME = "CTXAgent"
 # Former names: their data folder and stored keys are taken over on first start
 # (paths.data_dir, keys.KeyringBackend).
 LEGACY_APP_NAMES = ("PiAgent",)
-__version__ = "0.1.0"
+__version__ = "0.2.0"
 PUBLISHER = "Matthias Busch"
 # Windows taskbar grouping and the single-instance identity.
 APP_USER_MODEL_ID = "MatthiasBusch.CTXAgent"

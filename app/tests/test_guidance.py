@@ -33,9 +33,7 @@ def batch(conv, n=1, lines=300, tag='x'):
 
 
 def agent_cfg(**kw):
-    base = dict(rewrite_policy='agent', review_before_freeze=True, rewrite_interval_batches=3,
-                hot_zone_tokens=3000, deep_enabled=False,
-                protected_recent_observations=1, protected_recent_batches=1)
+    base = dict(rewrite_policy='agent', rewrite_interval_batches=3, deep_enabled=False)
     base.update(kw)
     return CompactionConfig(**base)
 
@@ -70,15 +68,7 @@ class EconomicsTests(unittest.TestCase):
         self.assertFalse(economics.rates(None, 20.0)['known'])
         self.assertEqual(economics.rates(None, 20.0)['write'] / economics.rates(None, 20.0)['read'], 20.0)
 
-    def test_cached_boundary_breakpoints_vs_prefix(self):
-        c, res = history()
-        c.freeze_prefix(4)                                # system, user, the first call and result
-        first = c.segments.index(res[3])
-        bp = economics.cached_boundary(c, first, 'breakpoints', 100)
-        auto = economics.cached_boundary(c, first, 'prefix', 100)
-        self.assertEqual(bp, 100 + sum(s.tokens() for s in c.segments[:4]))   # only the frozen prefix
-        self.assertEqual(auto, 100 + sum(s.tokens() for s in c.segments[:first]))
-        self.assertLess(bp, auto)
+    def test_cache_family(self):
         self.assertEqual(economics.cache_family('anthropic/claude-fable-5.1'), 'breakpoints')
         self.assertEqual(economics.cache_family('openai/gpt-6.1-sol'), 'prefix')
 
@@ -97,19 +87,11 @@ class CostFigureTests(unittest.TestCase):
         batch(c, 1)
         return c
 
-    def test_curate_drop_applies_and_reports_the_break_even(self):
-        c, res = history()
-        rep = curate.curate(c, agent_cfg(), 't', drop=[res[0].id], price=FABLE)
-        self.assertGreater(rep['freed'], 0)
-        self.assertIsNotNone(rep['cache_breakeven_requests'])
-        self.assertNotIn('verdict', rep)
-
     def test_compact_reports_the_break_even_with_and_without_cfg(self):
-        rep = manual.compact(self.build(), 't', summary=self.SUMMARY, dry_run=True,
-                             cfg=CompactionConfig(), price=FABLE)
+        rep = manual.compact(self.build(), 't', summary=self.SUMMARY, cfg=CompactionConfig(), price=FABLE)
         self.assertIsNotNone(rep['cache_breakeven_requests'])
         self.assertNotIn('verdict', rep)
-        self.assertIsNotNone(manual.compact(self.build(), 't', summary='', dry_run=True)['cache_breakeven_requests'])
+        self.assertIsNotNone(manual.compact(self.build(), 't', summary=self.SUMMARY)['cache_breakeven_requests'])
         c = self.build()
         self.assertGreater(manual.compact(c, 't', summary=self.SUMMARY, cfg=CompactionConfig(),
                                           price=FABLE)['saved_tokens'], 0)
@@ -126,7 +108,8 @@ class GuidancePromptTests(unittest.TestCase):
         live = agentmod.static_instructions(steered(guidance='live'))
         self.assertNotEqual(live, default)
         self.assertTrue(live.startswith(default.split(agentmod.MANAGE_MARKER)[0]))
-        self.assertLess(abs(tokens.count(live) - tokens.count(default)), 120)   # a few lines at most
+        # A few lines at most (the curate paragraph explains the references since 2026-11-10).
+        self.assertLess(abs(tokens.count(live) - tokens.count(default)), 150)
         self.assertIn('Facts the user stated', live)
         self.assertEqual(set(agentmod.GUIDANCE_SECTIONS) | {'default'}, set(GUIDANCE))
         # engine off: the context sections go, whatever the variant
@@ -158,7 +141,7 @@ class SelfSteeredTests(unittest.TestCase):
             self.assertIn(name, on.active_tools())
             self.assertNotIn(name, off.active_tools())
         self.assertIn('Managing your own context', agentmod.static_instructions(on))
-        self.assertIn('every 10 to 20 answers', agentmod.static_instructions(on))
+        self.assertIn('names the item before each history breakpoint', ' '.join(agentmod.static_instructions(on).split()))
         text = agentmod.static_instructions(off)
         self.assertNotIn('Managing your own context', text)
         self.assertIn('Context compaction', text)              # recall still explained
@@ -197,15 +180,13 @@ class SelfSteeredTests(unittest.TestCase):
                                   review_due={'since_batch': 33, 'reason': 'batch interval'})
         manual.compact(c, 't', summary='Handoff: ' + 'the first task is finished and verified. ' * 8)
         st = c.compaction_state
-        self.assertEqual((st['batches'], st['new_tokens']), (0, 0))
+        self.assertEqual(st['batches'], 0)
+        self.assertNotIn('new_tokens', st)
         self.assertNotIn('review_due', st)
 
-    def test_hint_states_the_answer_count_except_for_the_frozen_text(self):
-        c, _ = history()
-        hint = curate.hint_text(c, agent_cfg(), 12, 'batch interval')
-        self.assertIn('12 answers since the context was last curated or compacted', hint)
-        frozen = curate.hint_text(c, agent_cfg(guidance='live'), 12, 'batch interval')
-        self.assertNotIn('answers since', frozen)
+    def test_the_hint_is_one_line_for_every_variant(self):
+        self.assertEqual(curate.HINT, '[harness: context review due]')
+        self.assertEqual(len(curate.HINT.splitlines()), 1)
 
     def test_benchmark_live_arm_keeps_its_frozen_text_and_tools(self):
         import tempfile

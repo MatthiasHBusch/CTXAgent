@@ -739,8 +739,7 @@ details.disclosure > summary:hover { color: var(--fg); }
 }
 .seg:hover { background: var(--bg-hover); border-color: var(--border); }
 .seg .bar { width: 3px; align-self: stretch; border-radius: 2px; background: var(--border-strong); flex: none; }
-.seg.frozen .bar { background: var(--frozen); }
-.seg.hot .bar { background: var(--hot); }
+.seg .bar { background: var(--hot); }
 .seg .kind { flex: none; width: 66px; overflow: hidden; text-overflow: ellipsis; font-family: var(--font-mono); font-size: 10.5px; color: var(--fg-subtle); }
 .seg .pv { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--fg-muted); }
 .seg .tk { flex: none; font-family: var(--font-mono); font-size: 10.5px; color: var(--fg-subtle); }

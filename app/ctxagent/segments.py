@@ -1,8 +1,8 @@
 """The Segment: the unit the compaction engine reasons about.
 
 A conversation is a list of Segments, each of which renders to exactly zero or
-one OpenAI-format chat messages. Compaction never deletes a Segment inside the
-hot zone -- it only rewrites `body` and flips `state`. That guarantees the
+one OpenAI-format chat messages. Curation never deletes a Segment -- it only
+rewrites `body` (or a call's arguments) and flips `state`. That guarantees the
 assistant(tool_calls) -> tool(tool_call_id) pairing the API requires can never
 be broken by a rewrite. Whole-run deletion happens only in deep compaction,
 which cuts on validated boundaries.
@@ -196,7 +196,6 @@ class Segment:
     original_body: str | None = None
     original_tokens: int = 0
     blob_id: str | None = None
-    frozen: bool = False
     pinned: bool = False
     # Manual pins survive deep compaction; recall pins protect incremental passes.
     pin_scope: str = "manual"
@@ -276,7 +275,7 @@ class Segment:
 
     def rewrite(self, new_body: str, state: str, note: str) -> int:
         """Replace the effective body. Returns tokens freed."""
-        if self.frozen or self.pinned:
+        if self.pinned:
             return 0
         if self.original_body is None:
             self.original_body = self.body
@@ -292,6 +291,9 @@ class Segment:
         if self.original_body is not None:
             self.body = self.original_body
             self.original_body = None
+        calls = self.observation.pop("original_tool_calls", None)   # arguments curate replaced
+        if calls is not None:
+            self.tool_calls = calls
         self.state = S_ORIGINAL
         self.note = ""
         self.pinned = True  # recovered once => stop truncating this path
@@ -318,7 +320,6 @@ class Segment:
             "original_body": self.original_body,
             "original_tokens": self.original_tokens,
             "blob_id": self.blob_id,
-            "frozen": self.frozen,
             "pinned": self.pinned,
             "pin_scope": self.pin_scope,
             "pin_until_batch": self.pin_until_batch,
@@ -348,7 +349,6 @@ class Segment:
             original_body=d.get("original_body"),
             original_tokens=int(d.get("original_tokens") or 0),
             blob_id=d.get("blob_id"),
-            frozen=bool(d.get("frozen")),
             pinned=bool(d.get("pinned")),
             pin_scope=d.get("pin_scope", "legacy"),
             pin_until_batch=(int(d["pin_until_batch"]) if d.get("pin_until_batch") is not None else None),
@@ -369,13 +369,10 @@ class Segment:
 
 
 class Conversation:
-    """Ordered segment list + the frozen-prefix invariant."""
+    """Ordered segment list."""
 
-    def __init__(self, segments: list[Segment] | None = None, frozen_upto: int = 0):
+    def __init__(self, segments: list[Segment] | None = None):
         self.segments: list[Segment] = segments or []
-        # index (exclusive) of the cache-stable prefix. Monotone: only grows,
-        # except on a deep compaction which rebuilds the prefix entirely.
-        self.frozen_upto: int = frozen_upto
         self._next_seq = (max((s.seq for s in self.segments), default=-1)) + 1
         self.cache_state: dict = {}
         self.compaction_state: dict = {}
@@ -560,8 +557,7 @@ class Conversation:
         The old version only looked at the results directly after the call, so a handoff note
         in between made it add a placeholder for a call that HAD a result: two results for one
         id, which Anthropic rejects on every later request ("each tool_use must have a single
-        result"). Returns the number of changes; the frozen prefix is cut back only to the
-        first changed position, so the cached prefix before it stays valid.
+        result"). Returns the number of changes.
         """
         segs = self.segments
         owners = result_owners(segs)
@@ -618,54 +614,10 @@ class Conversation:
                     if rebuilt[k] is not segs[k] and id(rebuilt[k]) not in changed)
         changes = len(changed) + dropped + moved
         self.segments = rebuilt
-        if first < self.frozen_upto:
-            # Only what follows the first changed position leaves the cached prefix. That may
-            # be inside a tool group; the request then puts the live views behind the group's
-            # results (agent._run_turn), so the cached call stays cached.
-            self.frozen_upto = first
-            for s in rebuilt[first:]:
-                s.frozen = False
         return max(1, changes)
-
-    # -- the cache-stable split -------------------------------------------
-    def compute_hot_start(self, hot_zone_tokens: int) -> int:
-        """Index of the first segment inside the hot (rewritable) zone.
-
-        Walks backwards accumulating tokens. The result is clamped so it can
-        never move *backwards* past an already-frozen boundary: once a segment
-        has been sent to the provider in its final form, rewriting it would
-        invalidate the cache for everything after it.
-        """
-        acc = 0
-        idx = len(self.segments)
-        for i in range(len(self.segments) - 1, -1, -1):
-            acc += self.segments[i].tokens()
-            if acc > hot_zone_tokens:
-                idx = i + 1
-                break
-            idx = i
-        return max(idx, self.frozen_upto)
-
-    def freeze_prefix(self, hot_start: int) -> int:
-        """Mark everything before `hot_start` immutable. Returns newly frozen.
-
-        A tool group is frozen whole or not at all. A boundary right after a large call
-        (a write_file of a big file outweighs the hot zone by itself) used to freeze the
-        call without its results, and the live views that go right behind the frozen
-        prefix then sat between the call and its results: Anthropic rejects that request
-        ("tool_use ids were found without tool_result blocks immediately after")."""
-        hot_start = self.group_start(hot_start)
-        n = 0
-        for s in self.segments[:hot_start]:
-            if not s.frozen:
-                s.frozen = True
-                n += 1
-        self.frozen_upto = max(self.frozen_upto, hot_start)
-        return n
 
     def to_dict(self) -> dict[str, Any]:
         return {
-            "frozen_upto": self.frozen_upto,
             "archive": self.archive,
             "workspace": self.workspace.to_dict(),
             "browser": self.browser.to_dict(),
@@ -681,7 +633,7 @@ class Conversation:
         if not d:
             return cls()
         segs = [Segment.from_dict(x) for x in d.get("segments", [])]
-        conv = cls(segs, int(d.get("frozen_upto", 0)))
+        conv = cls(segs)   # 'frozen_upto' of older chats: there is no frozen prefix any more
         conv.archive = dict(d.get("archive") or {})
         from .workspace import DocumentWorkspace
         conv.workspace = DocumentWorkspace.from_dict(d.get("workspace"))

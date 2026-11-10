@@ -125,17 +125,16 @@ class PairingTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(wire_problems(c.to_messages()), [])
         self.assertEqual(c.repair_tool_pairs(), 0)  # idempotent
 
-    def test_repair_heals_stored_broken_chat_and_keeps_cached_prefix(self):
+    def test_repair_heals_stored_broken_chat_and_keeps_the_prefix(self):
         c = self.recorded_shape(broken=True)
-        c.freeze_prefix(len(c.segments))  # the recorded chat had the whole batch frozen
+        before = [s.id for s in c.segments]
         self.assertTrue(c.repair_tool_pairs())
         self.assertEqual(sum(s.body == INTERRUPTED_RESULT for s in c.segments), 0)
         self.assertEqual(sum(s.tool_call_id == 'c4' for s in c.segments), 1)
         self.assertEqual(wire_problems(c.to_messages()), [])
-        # Only the region from the first changed position leaves the cached prefix.
+        # The segments before the first changed position stay as they were.
         first_result = kinds(c).index(K_TOOL_CALL) + 4
-        self.assertEqual(c.frozen_upto, first_result)
-        self.assertTrue(all(s.frozen for s in c.segments[:first_result]))
+        self.assertEqual([s.id for s in c.segments[:first_result]], before[:first_result])
 
     def test_to_messages_is_valid_even_for_unrepaired_shapes(self):
         """Delegated chats are loaded by the server without repair; the request must still be

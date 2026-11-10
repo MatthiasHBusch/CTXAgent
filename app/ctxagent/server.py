@@ -572,9 +572,8 @@ async def context(cid: str) -> dict:
     s = agent.get_session(cid)
     if not s:
         raise HTTPException(404, "no such chat")
-    hot_start = s.conv.frozen_upto  # actual boundary, including pending linked review
     segs = []
-    for i, seg in enumerate(s.conv.segments):
+    for seg in s.conv.segments:
         segs.append({
             "id": seg.id,
             "seq": seg.seq,
@@ -583,17 +582,14 @@ async def context(cid: str) -> dict:
             "resource_key": seg.resource_key,
             "state": seg.state,
             "note": seg.note,
-            "frozen": seg.frozen,
             "pinned": seg.pinned,
             "tokens": seg.tokens(),
             "original_tokens": seg.original_tokens,
-            "hot": i >= hot_start,
             "preview": seg.preview(),
         })
     return {
         "stats": s.stats(),
         "segments": segs,
-        "hot_start": hot_start,
         "compaction_log": s.compaction_log[-50:],
         "usage": s.usage,
         "config": s.cfg.compaction.to_dict(),
@@ -632,13 +628,10 @@ async def restore_segment(cid: str, sid: str) -> dict:
         raise HTTPException(404, "no such segment")
     from .blobs import get_blob
 
-    if seg.blob_id:
+    if seg.blob_id and seg.kind != "tool_call":   # a call's blob is its rendering for recall
         blob = get_blob(seg.blob_id)
         if blob is not None:
             seg.original_body = blob
-    for item in s.conv.segments:
-        item.frozen = False
-    s.conv.frozen_upto = 0
     seg.restore()
     seg.pin_scope = "manual"
     s.persist()

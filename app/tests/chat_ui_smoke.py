@@ -11,7 +11,7 @@ cfg = config.SessionConfig(model='test/model', enabled_tools=['read_file'], comp
                            reasoning_effort='high',
                            workdirs=['C:\\work']).to_dict()
 cfg['compaction']['summary_share_prefix'] = False
-cfg['compaction']['hot_zone_tokens'] = 10000
+cfg['compaction']['deep_min_gain_tokens'] = 10000
 stats = dict(total=264546, original=333667, saved=69121, effective_window=379000, frozen_tokens=54044, hot_tokens=205678, hot_start=133, hot_zone_budget=10000, tool_overhead=4824, pressure=264546/379000, deep_target_ratio=0.1, deep_ready=True, rewrite_interval_batches=2, review_candidate_tokens=190000)
 chats = {key: dict(id=key, title='Chat '+key, config=copy.deepcopy(cfg), usage={}, stats=copy.deepcopy(stats),
                   segments=[], compaction_log=[]) for key in ('A', 'B')}
@@ -186,9 +186,8 @@ with sync_playwright() as pw:
     # Deep compaction is the engine's only automatic compaction: no incremental tiers.
     assert page.locator('#c-docs').count() == 0 and page.locator('#c-trigtok').count() == 0
     assert not page.locator('#c-share').is_checked()
-    assert not page.locator('#c-review').is_checked()
+    assert page.locator('#c-review').count() == 0 and page.locator('#c-hot').count() == 0   # nothing is frozen
     assert page.locator('#c-delivery').input_value() == '0'
-    page.locator('#c-review').check()
     page.locator('#c-delivery').fill('8000')
     page.locator('#c-share').check()
     # One switch for self-steered context management; its details are inert while it is off.
@@ -203,15 +202,14 @@ with sync_playwright() as pw:
     page.locator('#c-interval').fill('10')
     page.locator('#c-interval').press('Tab')
     page.locator('#c-guidance').select_option('live')
-    page.wait_for_function("S.cfg.compaction.review_before_freeze === true && S.cfg.compaction.guidance === 'live'")
+    page.wait_for_function("S.cfg.compaction.guidance === 'live'")
     page.wait_for_function("document.getElementById('cmp-state').textContent === 'Saved'")
     assert chats['C']['config']['compaction']['initial_result_max_tokens'] == 8000
     assert chats['C']['config']['compaction']['rewrite_interval_batches'] == 10
     saved = chats['C']['config']['compaction']
     assert (saved['rewrite_policy'], saved['guidance'], saved['summary_share_prefix']) == ('agent', 'live', True), saved
     assert 'curate_gate' not in saved and 'document_compaction_enabled' not in saved, saved
-    page.locator('#c-review').scroll_into_view_if_needed()
-    page.screenshot(path=str(root/'.ctxagent/freeze-review-settings.png'),full_page=True)
+    page.locator('#c-delivery').scroll_into_view_if_needed()
     page.screenshot(path=str(root/'.ctxagent/chat-engine-settings.png'),full_page=True)
     page.locator('#c-target').scroll_into_view_if_needed()
     page.screenshot(path=str(root/'.ctxagent/chat-deep-target.png'),full_page=True)

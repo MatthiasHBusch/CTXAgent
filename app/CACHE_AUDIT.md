@@ -1,5 +1,9 @@
 # Cache and cost audit — 2026-09-15
 
+*Record of the September 2026 audit. Findings 6 and 7 refer to the frozen prefix
+(`Conversation.frozen_upto`), which was removed on 2026-11-10: the breakpoints each request
+sends are now planned by `cache_policy.plan_rungs` (README.md, "Cache points").*
+
 ## Findings and changes
 
 1. **Lifetime hit rate masked recent improvements.** The live aggregate at audit start was 727,082 cached / 5,099,372 prompt tokens (14.26%). This includes earlier poor behavior. UI now shows lifetime, last request, and prompt-token-weighted last ten agent requests separately.

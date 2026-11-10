@@ -65,25 +65,14 @@ def report(conv, cfg, usage=None, *, top=5, recent=20):
     by_kind, by_state = Counter(), Counter()
     outputs = defaultdict(list)
     largest = []
-    frozen_tokens = 0
-    frozen_originals = 0
-    frozen_original_tokens = 0
-    # Use the ACTUAL immutable boundary, not the next prospective freeze point.
-    boundary = conv.frozen_upto
-    for i, seg in enumerate(conv):
+    for seg in conv:
         size = seg.tokens()
         by_kind[seg.kind] += size
         by_state[seg.state] += size
-        frozen = i < boundary or seg.frozen
-        frozen_tokens += size if frozen else 0
         if seg.kind == K_TOOL_RESULT:
             outputs[seg.tool_name or '?'].append(size)
-            if frozen and seg.state == 'original':
-                frozen_originals += 1
-                frozen_original_tokens += size
         largest.append({'segment_id': seg.id, 'kind': seg.kind, 'tool': seg.tool_name,
-                        'tokens_estimate': size, 'state': seg.state, 'frozen': frozen,
-                        'pinned': seg.pinned})
+                        'tokens_estimate': size, 'state': seg.state, 'pinned': seg.pinned})
     sizes = []
     for name, values in outputs.items():
         ordered = sorted(values)
@@ -97,8 +86,6 @@ def report(conv, cfg, usage=None, *, top=5, recent=20):
     warnings = []
     if not cc.enabled:
         warnings.append('Automatic compaction is disabled.')
-    if frozen_originals:
-        warnings.append('Frozen original observations cannot be incrementally reduced; use focused reads or a deliberate deep pass.')
     if total >= cfg.effective_window():
         warnings.append('Estimated prompt exceeds usable window; reduce context before another request.')
     return {
@@ -111,16 +98,11 @@ def report(conv, cfg, usage=None, *, top=5, recent=20):
                     'document_workspace_tokens_estimate': document_live,
                     'browser_workspace_tokens_estimate': browser_live,
                     'live_browser_tabs': len(conv.browser.views),
-                    'frozen_tokens_estimate': frozen_tokens, 'frozen_segments': boundary,
-                    'frozen_original_tool_results': frozen_originals,
-                    'frozen_original_tool_tokens_estimate': frozen_original_tokens,
                     'by_kind': dict(by_kind), 'by_state': dict(by_state)},
         'policy': {'enabled': cc.enabled,
-                   'review_before_freeze': cc.review_before_freeze,
                    'initial_result_max_tokens': cc.initial_result_max_tokens,
-                   'reviewed_through_seq': conv.compaction_state.get('reviewed_through_seq'),
-                   'hot_zone_tokens': cc.hot_zone_tokens, 'rewrite_interval_batches': cc.rewrite_interval_batches,
-                   'rewrite_max_new_tokens': cc.rewrite_max_new_tokens, 'deep_trigger_ratio': cc.deep_trigger_ratio,
+                   'rewrite_interval_batches': cc.rewrite_interval_batches,
+                   'deep_trigger_ratio': cc.deep_trigger_ratio,
                    'deep_target_ratio': cc.deep_target_ratio, 'summary_max_tokens': cc.summary_max_tokens,
                    'summary_min_tokens': cc.summary_min_tokens,
                    'pending_batches': conv.compaction_state.get('batches', 0)},

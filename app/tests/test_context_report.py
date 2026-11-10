@@ -17,7 +17,6 @@ class ContextReportTests(unittest.TestCase):
         c.new('user', K_USER, 'SECRET_USER_INTENT')
         for i in range(15):
             c.new('tool', K_TOOL_RESULT, 'SECRET_OUTPUT ' * (i + 1), tool_name='read_file')
-        c.freeze_prefix(5)
         cfg = SessionConfig(enabled_tools=['read_file'])
         cfg.compaction.enabled = False
         before = copy.deepcopy(c.to_dict())
@@ -27,8 +26,7 @@ class ContextReportTests(unittest.TestCase):
         self.assertNotIn('original_body', text)
         self.assertEqual(len(result['largest_segments']), 10)
         self.assertEqual(c.to_dict(), before)
-        self.assertEqual(result['context']['frozen_segments'], 5)
-        self.assertEqual(result['context']['frozen_original_tool_results'], 4)
+        self.assertNotIn('frozen_segments', result['context'])     # nothing is frozen any more
         self.assertIn('Automatic compaction is disabled.', result['warnings'])
 
     def test_no_telemetry_is_unknown_not_zero(self):
@@ -64,17 +62,14 @@ class ContextReportTests(unittest.TestCase):
         self.assertEqual(SessionConfig(context_window=200000, max_output_tokens=8000).effective_window(), 179000)
         self.assertEqual(SessionConfig(context_window=32000, max_output_tokens=32000).effective_window(), 1)
 
-    def test_stats_do_not_claim_prospective_freeze(self):
+    def test_stats_have_no_frozen_split(self):
         c = Conversation()
         for i in range(10):
             c.new('tool', K_TOOL_RESULT, 'words ' * 100)
-        cfg = SessionConfig()
-        cfg.compaction.hot_zone_tokens = 100
-        engine = CompactionEngine('report', cfg.compaction, None)
-        self.assertEqual(engine.stats(c, 100000)['frozen_tokens'], 0)
-        c.freeze_prefix(3)
-        self.assertEqual(engine.stats(c, 100000)['frozen_tokens'], sum(s.tokens() for s in c.segments[:3]))
-        self.assertEqual(engine.stats(c, 100000)['hot_start'], 3)
+        stats = CompactionEngine('report', SessionConfig().compaction, None).stats(c, 100000)
+        self.assertEqual(stats['total'], c.total_tokens())
+        for key in ('frozen_tokens', 'hot_tokens', 'hot_start', 'review_before_freeze'):
+            self.assertNotIn(key, stats)
 
     def test_summary_floor_when_fixed_context_exceeds_target(self):
         from ctxagent.compaction.deep_plan import plan

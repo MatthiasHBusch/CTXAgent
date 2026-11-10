@@ -1,9 +1,9 @@
 """SQLite persistence for chats.
 
-The whole Conversation (segments + frozen boundary + compaction state) is stored
-as JSON on the chat row. Sessions are small in count and large in content, so a
+The whole Conversation (segments + cache and compaction state) is stored as JSON
+on the chat row. Sessions are small in count and large in content, so a
 document-style row beats a normalised schema here — and it means a chat reloads
-with its compaction state exactly as it was, including which segments are frozen.
+with its compaction state exactly as it was.
 """
 
 from __future__ import annotations
@@ -64,7 +64,7 @@ def create_chat(title: str, config: dict[str, Any]) -> str:
         c.execute(
             "INSERT INTO chats (id,title,created_at,updated_at,config,conversation,events,compaction_log,usage)"
             " VALUES (?,?,?,?,?,?,?,?,?)",
-            (cid, title, now, now, json.dumps(config), json.dumps({"segments": [], "frozen_upto": 0}),
+            (cid, title, now, now, json.dumps(config), json.dumps({"segments": []}),
              "[]", "[]", "{}"),
         )
     return cid

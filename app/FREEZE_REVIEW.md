@@ -1,5 +1,10 @@
 # Review before freezing
 
+*Removed on 2026-11-10 together with the frozen prefix: nothing is frozen any more,
+curate_context may replace any item, and the cache points each request sends follow the
+history (README.md, "Cache points"). The bounded result delivery below still holds. The
+rest of this file is the record of how it worked.*
+
 ## Current behaviour (since 2026-11-05)
 
 `review_before_freeze` (Engine › Review before freezing) keeps fresh and protected

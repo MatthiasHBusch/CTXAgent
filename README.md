@@ -33,7 +33,7 @@ Two findings, in one sentence each:
 
 The agent lives on as **CTXAgent**, a desktop app for Windows and Linux. Download the
 installers from the release
-[**app-v0.1.0**](https://github.com/MatthiasHBusch/CTXAgent/releases/tag/app-v0.1.0); the
+[**app-v0.2.0**](https://github.com/MatthiasHBusch/CTXAgent/releases/tag/app-v0.2.0); the
 source, the build scripts and the documentation are in [`app/`](app/), with installation
 steps in [`app/README.md`](app/README.md). The app is developed further than the version the
 paper evaluated, which the rest of this repository keeps frozen, and it is licensed

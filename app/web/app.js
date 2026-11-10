@@ -924,7 +924,7 @@ function applyStats(st) {
     $('#s-window').textContent = fmt(win);
     $('#s-orig').textContent = fmt(st.original_tokens ?? st.original);
     $('#s-saved').textContent = `${fmt(st.saved_tokens ?? st.saved)} (${st.original ? pct(st.saved / st.original) : '0%'})`;
-    $('#s-history').textContent = fmt(st.history_tokens ?? Math.round((st.frozen_tokens + st.hot_tokens) * cal));
+    $('#s-history').textContent = fmt(st.history_tokens ?? 0);
     $('#s-live').textContent = fmt(st.live_tokens ?? 0);
     const reserve = st.usable_tokens != null ? win - st.usable_tokens : null;
     $('#s-ctx-note').textContent = (cal === 1
@@ -972,6 +972,8 @@ function applyUsage() {
   }
   $('#u-legacy-cost').textContent = money(u.legacy_unallocated_cost ?? u.cost);
   $('#u-summary-cost').textContent = money(u.by_source?.summary?.cost ?? 0);
+  const ka = u.by_source?.keepalive;
+  $('#u-keepalive-cost').textContent = ka ? `${money(ka.cost)} (${ka.requests})` : money(0);
   $('#u-allocation-note').textContent = 'Percentages are shares of known category estimates only, excluding historical/unknown costs. Categories use request-time tariffs, not provider itemization. Reasoning is part of completion, not an extra charge. '
     + `Unknown category requests are marked ?. Reconciliation residual: ${money(u.reconciliation_residual ?? 0)}; reported cost without complete tariff: ${money(u.unreconciled_reported_cost ?? 0)}; requests missing cost: ${u.missing_cost_requests || 0}. Historical summary calls were not recorded.`;
   const last = (u.recent_requests || []).filter(r => r.source === 'agent').slice(-1)[0];
@@ -1427,7 +1429,7 @@ function renderSegList(segs) {
   const host = $('#seglist'); host.innerHTML = '';
   $('#segcount').textContent = `(${segs.length})`;
   for (const s of segs.slice().reverse()) {
-    const d = el('div', 'seg ' + (s.hot ? 'hot' : 'frozen'));
+    const d = el('div', 'seg');
     d.appendChild(el('div', 'bar'));
     d.appendChild(el('span', 'kind', s.tool_name || s.kind.replace('assistant_text', 'assistant').replace('tool_result', 'result').replace('tool_call', 'call')));
     d.appendChild(el('span', 'pv', s.preview || '—'));
@@ -1435,7 +1437,7 @@ function renderSegList(segs) {
     else if (s.pinned) d.appendChild(el('span', 'tag pinned', 'pin'));
     const tk = el('span', 'tk', s.original_tokens > s.tokens ? `${fmt(s.tokens)}←${fmt(s.original_tokens)}` : fmt(s.tokens));
     d.appendChild(tk);
-    d.title = `${s.kind} · ${s.frozen ? 'frozen' : 'hot'}${s.note ? ' · ' + s.note : ''}${s.resource_key ? '\n' + s.resource_key : ''}`;
+    d.title = `${s.kind}${s.note ? ' · ' + s.note : ''}${s.resource_key ? '\n' + s.resource_key : ''}`;
     d.onclick = () => showSegment(s);
     host.appendChild(d);
   }
@@ -1451,7 +1453,6 @@ async function showSegment(s) {
     meta.innerHTML =
       `<div class="kv"><span class="k">kind</span><span class="v">${esc(s.kind)}</span></div>` +
       `<div class="kv"><span class="k">state</span><span class="v">${esc(s.state)}${s.note ? ' — ' + esc(s.note) : ''}</span></div>` +
-      `<div class="kv"><span class="k">zone</span><span class="v">${s.frozen ? 'frozen (cache-eligible)' : 'hot (rewritable)'}</span></div>` +
       `<div class="kv"><span class="k">tokens</span><span class="v">${s.tokens} (was ${s.original_tokens})</span></div>` +
       (s.resource_key ? `<div class="kv"><span class="k">resource</span><span class="v">${esc(s.resource_key)}</span></div>` : '');
     host.appendChild(meta);
@@ -1613,16 +1614,11 @@ function fillSettings() {
 
 function fillCompaction() {
   const k = S.cfg?.compaction; if (!k) return;
-  $('#c-hot-state').textContent = `Budget: ${fmt(k.hot_zone_tokens)} tokens.`;
-  $('#c-interval').value = k.rewrite_interval_batches ?? 10;
-  $('#c-newtokens').value = k.rewrite_max_new_tokens ?? 20000;
+  $('#c-interval').value = k.rewrite_interval_batches ?? 20;
   $('#c-pressure').value = k.rewrite_pressure_ratio ?? 0.70;
   $('#c-enabled').checked = k.enabled;
-  $('#c-review').checked = k.review_before_freeze === true;
   $('#c-delivery').value = k.initial_result_max_tokens ?? 0;
   $('#c-target').value = k.deep_target_ratio ?? 0.1;
-  $('#c-hot').value = k.hot_zone_tokens; $('#c-hot-v').textContent = fmt(k.hot_zone_tokens);
-  $('#c-protobs').value = k.protected_recent_observations;
   $('#c-protusr').value = k.protected_recent_user_turns;
   $('#c-deep').checked = k.deep_enabled;
   $('#c-trig').value = k.deep_trigger_ratio; $('#c-trig-v').textContent = pct(k.deep_trigger_ratio);
@@ -1630,6 +1626,7 @@ function fillCompaction() {
   $('#c-mingain').value = k.deep_min_gain_tokens;
   $('#c-summodel').value = k.summary_model;
   $('#c-share').checked = k.summary_share_prefix !== false;
+  $('#c-keepalive').checked = k.cache_keepalive !== false;
   $('#c-selfsteer').checked = k.rewrite_policy === 'agent';
   $('#c-guidance').value = k.guidance === 'live' ? 'live' : 'default';
   updateSelfSteerControls(); explainTail();
@@ -1650,14 +1647,10 @@ function explainTail() {
 function readCompaction() {
   return {
     enabled: $('#c-enabled').checked,
-    review_before_freeze: $('#c-review').checked,
     initial_result_max_tokens: +$('#c-delivery').value,
     deep_target_ratio: +$('#c-target').value,
-    hot_zone_tokens: +$('#c-hot').value,
     rewrite_interval_batches: +$('#c-interval').value,
-    rewrite_max_new_tokens: +$('#c-newtokens').value,
     rewrite_pressure_ratio: +$('#c-pressure').value,
-    protected_recent_observations: +$('#c-protobs').value,
     protected_recent_user_turns: +$('#c-protusr').value,
     deep_enabled: $('#c-deep').checked,
     deep_trigger_ratio: +$('#c-trig').value,
@@ -1665,6 +1658,7 @@ function readCompaction() {
     deep_min_gain_tokens: +$('#c-mingain').value,
     summary_model: $('#c-summodel').value.trim(),
     summary_share_prefix: $('#c-share').checked,
+    cache_keepalive: $('#c-keepalive').checked,
     rewrite_policy: $('#c-selfsteer').checked ? 'agent' : 'auto',
     guidance: $('#c-guidance').value,
   };
@@ -1886,9 +1880,9 @@ const SAVE = {
     read: readSettings, refill: () => { fillSettings(); refreshEmptyChat(); }, state: '#cfg-state',
   },
   engine: {
-    fields: ['#c-enabled', '#c-review', '#c-delivery', '#c-target', '#c-hot', '#c-interval', '#c-newtokens',
-             '#c-pressure', '#c-protobs', '#c-protusr', '#c-deep', '#c-trig', '#c-cool', '#c-mingain',
-             '#c-summodel', '#c-share', '#c-selfsteer', '#c-guidance'],
+    fields: ['#c-enabled', '#c-delivery', '#c-target', '#c-interval',
+             '#c-pressure', '#c-protusr', '#c-deep', '#c-trig', '#c-cool', '#c-mingain',
+             '#c-summodel', '#c-share', '#c-keepalive', '#c-selfsteer', '#c-guidance'],
     read: () => ({ compaction: readCompaction() }), refill: () => { fillCompaction(); refreshContext(); },
     state: '#cmp-state',
   },
@@ -2284,7 +2278,7 @@ function initSettingsButton() {
 /* ------------------------------------------------------------------ init */
 function applyHealth(h) {
   S.tools = h.tools || S.tools || [];
-  if (h.backend_build !== 'ctxagent-defaults-v1' || h.restart_required || h.accounting_version !== 2) {
+  if (h.backend_build !== 'ctxagent-curate-refs-v1' || h.restart_required || h.accounting_version !== 2) {
     $('#backend-status').className = 'banner';
     $('#backend-status').textContent = 'BACKEND RESTART REQUIRED. Browser refresh alone does not activate new code. Cost categories/cadence may be unavailable. Stop the Python server, restart it, then reload.';
   } else {
@@ -2417,10 +2411,6 @@ async function init() {
     $('#prov-count').textContent =
       `${d.allowed.length} of ${d.total} OpenRouter providers qualify as EU/US.`;
   }).catch(() => {});
-  $('#c-hot').oninput = e => {
-    $('#c-hot-v').textContent = fmt(+e.target.value);
-    $('#c-hot-state').textContent = `Budget: ${fmt(+e.target.value)} tokens (saved when you let go).`;
-  };
   $('#c-trig').oninput = e => $('#c-trig-v').textContent = pct(+e.target.value);
   $('#c-target').oninput = explainTail;
   $('#c-selfsteer').onchange = updateSelfSteerControls;

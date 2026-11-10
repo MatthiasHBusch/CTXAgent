@@ -25,7 +25,7 @@ class AgentTests(unittest.IsolatedAsyncioTestCase):
         self.tmp=tempfile.TemporaryDirectory(); self.addCleanup(self.tmp.cleanup)
         self.root=Path(self.tmp.name); (self.root/'input.txt').write_text('source evidence',encoding='utf-8')
         cfg=SessionConfig(workdirs=[str(self.root)],pricing_mode='prefer_flex',
-            compaction=CompactionConfig(enabled=False,review_before_freeze=True))
+            compaction=CompactionConfig(enabled=False,summary_share_prefix=False))
         self.cid=store.create_chat('parent',cfg.to_dict())
         self.s=agent.get_session(self.cid)
         self.s.conv.new('user',K_USER,'parent history must not automatically leak')
@@ -73,12 +73,12 @@ class AgentTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_partial_overrides_and_exact_segment_handoff(self):
         seg=self.s.conv.segments[-1]
-        a=self.stub('review',overrides={'model':'another','compaction':{'hot_zone_tokens':12000}},segment_ids=[seg.id],inherit_documents=False)
+        a=self.stub('review',overrides={'model':'another','compaction':{'deep_min_gain_tokens':12000}},segment_ids=[seg.id],inherit_documents=False)
         row=store.get_chat(a['child'])
         self.assertEqual(row['config']['model'],'another')
         self.assertEqual(row['config']['pricing_mode'],'prefer_flex')
-        self.assertTrue(row['config']['compaction']['review_before_freeze'])
-        self.assertEqual(row['config']['compaction']['hot_zone_tokens'],12000)
+        self.assertFalse(row['config']['compaction']['summary_share_prefix'])
+        self.assertEqual(row['config']['compaction']['deep_min_gain_tokens'],12000)
         self.assertIn('parent history must not automatically leak',json.dumps(row['conversation']))
         self.assertEqual(agent.get_session(a['child']).conv.workspace.views,[])
         for bad in ({'unknown':1},{'compaction':{'unknown':1}},{'agent_max_parallel':99}):

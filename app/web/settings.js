@@ -474,9 +474,9 @@
     'agent_timeout_seconds', 'compaction']);
   const SUMMARY_KEYS = new Set(['summary_model', 'summary_reasoning', 'summary_pricing_mode']);
   const COMPACTION_ESSENTIALS = [
-    ['enabled', 'Compaction enabled'], ['hot_zone_tokens', 'Recent working tail (tokens)'],
+    ['enabled', 'Compaction enabled'],
     ['rewrite_policy', 'Self-steered context management'], ['rewrite_interval_batches', 'Review hint every N tool batches'],
-    ['review_before_freeze', 'Review before freezing'], ['initial_result_max_tokens', 'Initial tool-result cap (0 = unlimited)'],
+    ['initial_result_max_tokens', 'Initial tool-result cap (0 = unlimited)'],
     ['deep_enabled', 'Deep compaction'],
     ['deep_trigger_ratio', 'Deep compaction trigger (fraction of window)'], ['deep_target_ratio', 'Target remaining after deep pass'],
     ['summary_max_tokens', 'Summary max tokens'],

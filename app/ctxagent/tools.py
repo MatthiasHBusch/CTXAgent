@@ -561,17 +561,14 @@ async def t_recall(sb: Sandbox, segment_id: str) -> ToolResult:  # pragma: no co
     raise ToolError("recall is handled by the agent loop")
 
 
-# compact_context too (an agent-directed deep compaction; compaction/manual.py).
-async def t_compact_context(sb: Sandbox, summary: str = "", keep_from: str = "last_user",
-                            keep_ids=None, dry_run: bool = False,
-                            index: bool = True) -> ToolResult:  # pragma: no cover
+# compact_context too (agent-directed compaction; compaction/manual.py).
+# (prepare_arguments checks a call against this signature: it names what the handler takes.)
+async def t_compact_context(sb: Sandbox, summary: str = "", until=None) -> ToolResult:  # pragma: no cover
     raise ToolError("compact_context is handled by the agent loop")
 
 
-# curate_context likewise (agent-curated incremental review; compaction/curate.py). `rest` is
-# no longer in the schema; chats started before may still pass it.
-async def t_curate_context(sb: Sandbox, drop=None, rest: str = "keep", commit: bool = True,
-                           dry_run: bool = False, min_tokens: int = 0) -> ToolResult:  # pragma: no cover
+# curate_context likewise (the agent replaces items by its own text; compaction/curate.py).
+async def t_curate_context(sb: Sandbox, pairs=None, **other) -> ToolResult:  # pragma: no cover
     raise ToolError("curate_context is handled by the agent loop")
 
 
@@ -753,20 +750,14 @@ REGISTRY: dict[str, ToolSpec] = {}
 #: Shared description of what `level` means per format. Kept in one place so the
 #: tool schema the model sees always matches what the readers actually do.
 LEVELS_DOC = (
-    "LEVEL MEANS TWO DIFFERENT THINGS, by mode. "
-    "mode='static' -> a STRUCTURAL level (0-5), not a size limit: "
-    "0 barest skeleton, each step adds one layer, 5 is the document's full text. "
-    "Per format: code -> class names, then function names, then full signatures, "
-    "then docstrings; markdown/rst/html/latex -> one more heading depth each "
-    "step; csv/xlsx/parquet -> dtypes and row labels, then per-column statistics, "
-    "then sample rows; pdf -> bookmark tree, then first lines of each page; "
-    "latex -> sections, then figures/tables with captions and equation labels, "
-    "then the opening sentence of every paragraph; json/yaml/xml -> one more "
-    "nesting depth. Static outlines are free and instant, so pick the level by "
-    "the detail you need, not by size. "
-    "mode='llm' -> a TOKEN BUDGET for the generated summary: "
-    "0=100, 1=300, 2=1000, 3=3000, 4=10000, 5=uncapped. "
-    "Start at level 1 or 2; raise it only if the answer is not there."
+    "mode='static' (default, no model call): level 0-5 is structural depth, 0 = barest "
+    "skeleton, 5 = full text. Code: class names, function names, signatures, docstrings. "
+    "Markdown/rst/html: one more heading depth per level. Latex: sections, then "
+    "figures/tables/equation labels, then first sentences. Tables: dtypes, column "
+    "statistics, sample rows. PDF: bookmarks, then first lines per page. JSON/YAML/XML: "
+    "one more nesting depth per level. "
+    "mode='llm': level is the token budget of a generated summary: "
+    "0=100, 1=300, 2=1000, 3=3000, 4=10000, 5=uncapped."
 )
 
 
@@ -776,18 +767,18 @@ def _reg(spec: ToolSpec) -> None:
 
 _reg(ToolSpec(
     "read_file",
-    "Read a text file. Returns line-numbered content. Use offset/limit for large files.",
+    "Read a text file with line numbers.",
     _p({
-        "path": {"type": "string", "description": "Absolute path, or relative to the working directory."},
-        "offset": {"type": "integer", "description": "First line to read (1-based). Default 1."},
-        "limit": {"type": "integer", "description": "Max lines to read. Default 2000."},
+        "path": {"type": "string", "description": "Absolute, or relative to the working directory."},
+        "offset": {"type": "integer", "description": "First line, 1-based."},
+        "limit": {"type": "integer", "description": "Lines to read. Default 2000."},
     }, ["path"]),
     t_read_file, "files",
 ))
 
 _reg(ToolSpec(
     "write_file",
-    "Write a file, creating or overwriting it. Provide the complete content.",
+    "Create or overwrite a file with the given content.",
     _p({
         "path": {"type": "string"},
         "content": {"type": "string"},
@@ -797,7 +788,7 @@ _reg(ToolSpec(
 
 _reg(ToolSpec(
     "edit_file",
-    "Replace an exact string in a file. old_string must be unique unless replace_all is true.",
+    "Replace an exact string in a file. Fails if old_string occurs more than once, unless replace_all.",
     _p({
         "path": {"type": "string"},
         "old_string": {"type": "string"},
@@ -823,21 +814,19 @@ _reg(ToolSpec(
 
 _reg(ToolSpec(
     "grep_search",
-    "Search file contents with a Python regular expression (ripgrep-like). Returns "
-    "path:line: match. No size cap: large files are streamed. Inside a git repo the "
-    "file list honours .gitignore; dot-dirs below the root are skipped (pass one as "
-    "path to search it). The header always states what was searched and warns when "
-    "results are incomplete (max_results hit, time budget, skipped files), so "
-    "'(no matches)' without a warning is a real negative.",
+    "Search file contents with a Python regex; returns path:line: match. In a git repo the "
+    "file list follows .gitignore, and dot-dirs below the root are skipped unless given as "
+    "path. The header states what was searched and whether the result is incomplete.",
     _p({
-        "pattern": {"type": "string", "description": "Python regex (or plain text with literal=true)."},
+        "pattern": {"type": "string"},
         "path": {"type": "string", "description": "File or directory. Default: the working directory."},
-        "glob": {"type": "string", "description": "File filter: '*.py', 'src/**/*.cpp', several separated by commas, '!*.min.js' excludes. No slash = file name."},
-        "max_results": {"type": "integer", "description": "Max matching lines (content) or files (files/count). Default 200."},
-        "context": {"type": "integer", "description": "Lines of context before/after each match (0-20), like grep -C."},
+        "glob": {"type": "string", "description": "'*.py', 'src/**/*.cpp', comma-separated, '!x' excludes."},
+        "max_results": {"type": "integer", "description": "Default 200."},
+        "context": {"type": "integer", "description": "Lines around each match, 0-20."},
         "case_insensitive": {"type": "boolean"},
-        "literal": {"type": "boolean", "description": "Treat pattern as plain text, not a regex."},
-        "mode": {"type": "string", "enum": ["content", "files", "count"], "description": "content = matching lines (default); files = paths only; count = hits per file."},
+        "literal": {"type": "boolean", "description": "Pattern is plain text."},
+        "mode": {"type": "string", "enum": ["content", "files", "count"],
+                 "description": "Matching lines (default), paths only, or hits per file."},
     }, ["pattern"]),
     t_grep_search, "search",
 ))
@@ -866,10 +855,8 @@ _reg(ToolSpec(
 
 _reg(ToolSpec(
     "recall",
-    "Restore the full original content of an earlier tool result that context "
-    "compaction shortened. Pass the segment_id shown in the placeholder. The "
-    "restored content is protected from incremental compaction. Deep compaction may "
-    "archive it again; the same segment_id remains recallable.",
+    "Return the original content behind a segment_id (a shortened, replaced or compacted "
+    "item) as a new result, which automatic compaction then leaves alone.",
     _p({"segment_id": {"type": "string"}}, ["segment_id"]),
     t_recall, "context",
 ))
@@ -884,8 +871,8 @@ _reg(ToolSpec(
     "count against the context window.",
     _p({
         "segment_ids": {"type": "array", "items": {"type": "string"},
-                        "description": "Segment ids (see recall placeholders / context_report), or ['last']."},
-        "batches": {"type": "integer", "description": "Expire after N more tool batches (0 = no expiry)."},
+                        "description": "Ids from markers or context_report; 'last' = results of the previous batch."},
+        "batches": {"type": "integer", "description": "Pin expires after this many tool batches; 0 = stays."},
         "unpin": {"type": "boolean"},
         "list_pins": {"type": "boolean"},
     }, []),
@@ -894,129 +881,83 @@ _reg(ToolSpec(
 
 _reg(ToolSpec(
     "compact_context",
-    "Deliberate deep compaction, under YOUR control - rare, at topic boundaries. Everything between "
-    "the system prompt and `keep_from` is archived (still recallable by id) and replaced by YOUR "
-    "`summary`: the handoff you would give a colleague taking over (goal, decisions and why, files "
-    "changed, results/numbers, open issues, ids worth recalling). Use it when a task is finished and "
-    "the conversation moves on: every later request then stops paying cache reads for the old work. "
-    "keep_from: 'last_user' (default: keep the newest user message and all work since), "
-    "'current_batch', or a segment id. keep_ids: tool results (with their call) to keep verbatim; "
-    "manual pins are kept too. An index of the archived results is appended unless index=false. "
-    "dry_run=true reports tokens saved and the cache break-even (requests until the one-time cache "
-    "rewrite pays off) without changing anything.",
+    "Replace the history up to an item by your summary. `until` counts back like a "
+    "curate_context reference: 1 is your newest tool result, tool call or answer before this "
+    "call. A tool batch is not split: a cut inside one moves before it. The summary is followed "
+    "by an index of the replaced tool results with their recall ids.",
     _p({
-        "summary": {"type": "string", "description": "Your handoff text replacing the compacted part (>= 200 chars)."},
-        "keep_from": {"type": "string", "description": "'last_user' (default), 'current_batch', or a segment id: kept verbatim from here on."},
-        "keep_ids": {"type": "array", "items": {"type": "string"}, "description": "Segment ids before the cut to keep verbatim."},
-        "dry_run": {"type": "boolean"},
-        "index": {"type": "boolean", "description": "Append an index of archived tool results (default true)."},
-    }, []),
+        "summary": {"type": "string"},
+        "until": {"type": "integer", "minimum": 1,
+                  "description": "Last item replaced. Default: everything before the newest user message."},
+    }, ["summary"]),
     t_compact_context, "context",
 ))
 
 _reg(ToolSpec(
     "curate_context",
-    "Incremental context review under YOUR control (the light-weight sibling of compact_context). "
-    "Without `drop` it LISTS the unfrozen tool results you have already seen: id, tool, tokens, call "
-    "args, first line. With `drop` it replaces the named results by a stub carrying YOUR note (the "
-    "takeaway, e.g. 'BUILD_OK, 0 warnings' or 'Foo::bar defined at x.cpp:120') - the full text stays "
-    "recallable. Results you do not name are kept verbatim. drop=[] means 'reviewed, keep all'. "
-    "commit=true (default) freezes the reviewed older region (cache-stable) and resets the review "
-    "counter. Use it when the harness hints a review is due, or after a subtask whose bulky output "
-    "(logs, big reads, searches) is no longer needed. Dropping invalidates the cache from that "
-    "point: dry_run=true reports the break-even. Prefer dropping large, old, dead results.",
+    "curate_context(reference1, replacement1, reference2, replacement2, as many following as you "
+    "like...). A reference counts back from the newest item before this call: 1 is your newest tool "
+    "result, tool call or answer, 2 the one before, and so on. Each item is replaced by its "
+    "replacement text; recall(segment_id) in the stub restores the original.",
     _p({
-        "drop": {"type": "array", "items": {"anyOf": [
-            {"type": "string", "description": "segment id, optionally 'id: note'"},
-            {"type": "object", "properties": {"id": {"type": "string"}, "note": {"type": "string"}},
-             "required": ["id"]}]},
-            "description": "Results to drop; the note (<=400 chars) becomes the visible stub."},
-        "commit": {"type": "boolean"},
-        "dry_run": {"type": "boolean"},
-        "min_tokens": {"type": "integer", "description": "Listing: hide results smaller than this."},
+        "pairs": {"type": "array", "items": {"anyOf": [{"type": "integer"}, {"type": "string"}]},
+                  "description": "reference1, replacement1, reference2, replacement2, ..."},
     }, []),
     t_curate_context, "context",
 ))
 
 _reg(ToolSpec(
     "read_document",
-    "Extract the full readable text of any supported document: PDF, DOCX, PPTX, "
-    "Jupyter notebook, CSV/TSV/Excel/Parquet, HTML, JSON/YAML/TOML/XML, or plain "
-    "text and source files. Use this instead of read_file for non-plain-text "
-    "formats. For a large document, prefer summarize_file first.",
+    "Extract the readable text of a document: PDF, DOCX, PPTX, Jupyter notebook, "
+    "CSV/TSV/Excel/Parquet, HTML, JSON/YAML/TOML/XML, plain text and source files.",
     _p({
         "path": {"type": "string"},
-        "offset": {"type": "integer", "description": "First extracted line to return (1-based)."},
-        "limit": {"type": "integer", "description": "Max lines to return. Default 3000."},
+        "offset": {"type": "integer", "description": "First extracted line, 1-based."},
+        "limit": {"type": "integer", "description": "Lines to return. Default 3000."},
     }, ["path"]),
     t_read_document, "documents",
 ))
 
 _reg(ToolSpec(
     "summarize_file",
-    "Summarise ONE file at a chosen level of detail, without reading all of it. "
-    "mode='static' is free, instant and cannot hallucinate: it reports the real "
-    "structure of the file (class/function signatures for code, headings for "
-    "markdown, columns and dtypes for tables, bookmarks for PDFs). "
-    "mode='llm' asks a small model what the document actually means and says. "
-    "Start here for a large or unfamiliar file; a file you can read in one read_file call needs no outline. " + LEVELS_DOC,
+    "Outline or summary of one file: its real structure (static) or a small model's "
+    "summary of the content (llm). " + LEVELS_DOC,
     _p({
         "path": {"type": "string"},
-        "level": {"type": "integer", "minimum": 0, "maximum": 5,
-                  "description": "For mode='static': structural depth 0-5 "
-                                 "(5 = full text). For mode='llm': token budget "
-                                 "0=100, 1=300, 2=1000, 3=3000, 4=10000, "
-                                 "5=uncapped. Default 2."},
-        "mode": {"type": "string", "enum": ["static", "llm"],
-                 "description": "'static' = structural outline (free, instant, cannot "
-                                "hallucinate). 'llm' = generated prose summary of what "
-                                "the document means."},
+        "level": {"type": "integer", "minimum": 0, "maximum": 5, "description": "Default 2."},
+        "mode": {"type": "string", "enum": ["static", "llm"]},
     }, ["path"]),
     t_summarize_file, "documents", needs_ctx=True,
 ))
 
 _reg(ToolSpec(
     "focus_file",
-    "Read ONE part of a document in full, embedded in a collapsed outline of the "
-    "rest — a folded view, like a JSON viewer with one key open or a file browser "
-    "with one folder expanded. Use this instead of read_file whenever you want a "
-    "specific function, section, key, column or page out of a large file: you get "
-    "the exact content plus the surrounding structure, at a fraction of the tokens. "
-    "SELECTORS: a name (`run`), a dotted path (`CompactionEngine.run`, "
-    "`server.tls`), a regex between slashes (`/^_snap/`), or a raw line range "
-    "(`L120-160`, works on any file). Pass several to open several parts. "
-    "If nothing matches, the reply lists the addressable names — retry with one.",
+    "Folded view of a file: the selected parts (function, section, key, column, page) in "
+    "full inside a collapsed outline of the rest. A selector that matches nothing returns "
+    "the addressable names.",
     _p({
         "path": {"type": "string"},
         "select": {
             "anyOf": [{"type": "string"},
                       {"type": "array", "items": {"type": "string"}}],
-            "description": "What to unfold: name, dotted path, /regex/, or Lstart-end.",
+            "description": "Name (`run`), dotted path (`Engine.run`, `server.tls`), /regex/, "
+                           "or line range L120-160 (any file).",
         },
         "level": {"type": "integer", "minimum": 0, "maximum": 4,
-                  "description": "Detail of the COLLAPSED lines: 0 labels only, "
-                                 "1 adds line spans and sizes. Default 1."},
-        "max_tokens": {"type": "integer",
-                       "description": "Cap on unfolded content. Default 24000."},
+                  "description": "Detail of the collapsed lines: 0 labels, 1 adds line spans and sizes (default)."},
+        "max_tokens": {"type": "integer", "description": "Cap on unfolded content. Default 24000."},
     }, ["path", "select"]),
     t_focus_file, "documents",
 ))
 
 _reg(ToolSpec(
     "summarize_folder",
-    "Survey a directory tree at a chosen level of detail. level=0 is a plain "
-    "listing. At level N each FILE is outlined at level N-1, and each SUBFOLDER "
-    "is surveyed at level N-2 — so detail decays with depth and the output stays "
-    "bounded. Use this once to orient yourself in an unfamiliar project "
-    "instead of many list_dir/read_file round trips.",
+    "Survey a directory tree. level 0 is a plain listing; at level N each file gets its "
+    "static outline at level N-1 and each subfolder is surveyed at level N-2.",
     _p({
         "path": {"type": "string"},
-        "level": {"type": "integer", "minimum": 0, "maximum": 6,
-                  "description": "0 = listing only. At level N each file gets a "
-                                 "static outline at level N-1 and each subfolder "
-                                 "is surveyed at N-2. Default 2."},
-        "token_budget": {"type": "integer",
-                         "description": "Hard cap on output size. Default 12000."},
+        "level": {"type": "integer", "minimum": 0, "maximum": 6, "description": "Default 2."},
+        "token_budget": {"type": "integer", "description": "Cap on output size."},
     }, []),
     t_summarize_folder, "documents",
 ))
@@ -1032,8 +973,8 @@ async def t_context_report(sb: Sandbox, top: int = 5, recent: int = 20, ctx=None
 
 _reg(ToolSpec(
     'context_report',
-    'Inspect this chat\'s context sizes, largest tools/segments, recorded cache hits/costs and inactive settings. '
-    'Read-only, no API calls or message bodies. Local tokens are estimates. Defaults: top=5, recent=20 agent requests.',
+    'Context sizes of this chat, its largest tool schemas and segments (with ids), recorded cache hits and '
+    'costs, inactive settings. Local token counts are estimates. Defaults: top=5, recent=20 requests.',
     _p({'top': {'type': 'integer', 'minimum': 1, 'maximum': 10},
         'recent': {'type': 'integer', 'minimum': 1, 'maximum': 100}}, []),
     t_context_report, 'context', needs_ctx=True,

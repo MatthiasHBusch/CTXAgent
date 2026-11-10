@@ -25,27 +25,22 @@ def register(registry, ToolSpec, ToolResult, params):
         return result(await asyncio.to_thread(edit_plans.apply, sb, ctx['session'].chat_id, plan_id, rollback))
 
     specs = [
-        ToolSpec('latex_inspect', 'Inspect a LaTeX main source and literal input/include graph. Return source hashes, '
-                 'missing inputs, duplicate labels, unresolved reference/citation candidates. Static analysis is best effort, not TeX execution.',
+        ToolSpec('latex_inspect', 'Static check of a LaTeX main file and its input/include graph: source hashes, missing inputs, duplicate labels, unresolved reference and citation candidates. TeX is not run.',
                  params({'main': {'type': 'string'}}, ['main']), latex_inspect, 'latex'),
-        ToolSpec('latex_build', 'Start latexmk as a managed job with no rc loading or shell escape. Returns job ID, PDF/log paths. '
-                 'Wait with job_status, inspect latex_diagnostics, then render_pdf to verify layout. Existing PDF can be stale after failure. '
-                 'Runs as user, NOT sandboxed.',
+        ToolSpec('latex_build', 'Run latexmk as a job (no rc files, no shell escape); returns the job id and the PDF and log paths. After a failed build the PDF on disk is the old one.',
                  params({'main': {'type': 'string'}, 'engine': {'type': 'string', 'enum': ['pdflatex','lualatex','xelatex']},
                          'timeout': {'type': 'integer', 'minimum': 1, 'maximum': 604800}}, ['main']),
                  latex_build, 'latex', dangerous=True, needs_ctx=True),
-        ToolSpec('latex_diagnostics', 'Parse a TeX log into bounded errors/warnings/layout messages. Does not imply visual quality.',
+        ToolSpec('latex_diagnostics', 'Errors, warnings and layout messages parsed from a TeX log.',
                  params({'path': {'type': 'string'}, 'max_entries': {'type': 'integer'}}, ['path']), latex_diagnostics, 'latex'),
-        ToolSpec('prepare_edit_plan', 'Prepare a multi-file exact-edit plan and unified diff WITHOUT changing source files. '
-                 'Stores source hashes and backups; preserves UTF-8 BOM and CRLF. Review before apply_edit_plan.',
+        ToolSpec('prepare_edit_plan', 'Prepare exact-string edits across up to 30 files as one plan and return its unified diff; nothing is written until apply_edit_plan. BOM and CRLF are preserved.',
                  params({'changes': {'type': 'array', 'minItems': 1, 'maxItems': 30, 'items': {
                      'type': 'object', 'properties': {'path': {'type': 'string'}, 'expected_sha256': {'type': 'string'},
                      'edits': {'type': 'array', 'items': {'type': 'object', 'properties': {
                          'old_string': {'type': 'string'}, 'new_string': {'type': 'string'}, 'replace_all': {'type': 'boolean'}},
                          'required': ['old_string','new_string']}}}, 'required': ['path','edits']}}}, ['changes']),
                  prepare_edit_plan, 'editing', needs_ctx=True),
-        ToolSpec('apply_edit_plan', 'Apply a reviewed edit plan only if all source hashes still match. Per-file atomic writes with journal, '
-                 'not a global transaction. rollback=true restores backups only if current files match plan outputs. Refuses stale files.',
+        ToolSpec('apply_edit_plan', 'Write a prepared plan if the files are unchanged since it was prepared. Files are replaced one by one with backups, not as one transaction; rollback=true restores the backups.',
                  params({'plan_id': {'type': 'string'}, 'rollback': {'type': 'boolean'}}, ['plan_id']),
                  apply_edit_plan, 'editing', dangerous=True, needs_ctx=True),
     ]

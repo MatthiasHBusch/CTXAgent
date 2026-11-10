@@ -175,6 +175,17 @@ def analyse(by_chat: dict[str, list[dict]], titles: dict[str, dict] | None = Non
                        "cache_read": _num(ev.get("cache_read")), "cache_write": _num(ev.get("cache_write")),
                        "uncached": _num(ev.get("uncached")), "output": max(0, output), "reasoning": _num(reasoning),
                        "model": model, "finish": ev.get("finish"), "error": ev.get("error")}
+                if ev.get("keepalive"):
+                    # Prompt-cache keep-alives: real spend, but no model answer (not a request
+                    # in the charts and per-turn figures).
+                    overview["keepalives"] += 1
+                    overview["keepalive_cost"] += _num(ev.get("cost"))
+                    overview["cost"] += _num(ev.get("cost"))
+                    models[model]["cost"] += _num(ev.get("cost"))
+                    for k in tok_keys:
+                        overview[k] += row[k]
+                        models[model][k] += row[k]
+                    continue
                 reqs.append(row)
                 overview["requests"] += 1
                 overview["cost"] += _num(ev.get("cost"))
@@ -577,7 +588,9 @@ def render_markdown(stats: dict) -> str:
           f"{c.get('tool_calls', 0)} | {_pct(_rate(c.get('tool_failures', 0), c.get('tool_calls', 0)))} |")
     a("")
     a(f"All models: cache-read share {_pct(_rate(o.get('cache_read', 0), prompt))}; "
-      f"{o.get('capped_responses', 0)} responses hit the output cap; {o.get('request_errors', 0)} requests failed.")
+      f"{o.get('capped_responses', 0)} responses hit the output cap; {o.get('request_errors', 0)} requests failed."
+      + (f" {o['keepalives']} cache keep-alives during long tool runs ({_usd(o.get('keepalive_cost'))})."
+         if o.get('keepalives') else ""))
     t = stats["turns"]
     if t.get("count"):
         a(f"Per turn: median {_usd(t['cost_median'])} (p90 {_usd(t['cost_p90'])}), {t['requests_median']:.0f} requests "
@@ -960,7 +973,9 @@ def render_html(stats: dict) -> str:
         a(f'<p class="muted">Per turn: median {_usd(t["cost_median"])} (p90 {_usd(t["cost_p90"])}), '
           f'{t["requests_median"]:.0f} requests (p90 {t["requests_p90"]:.0f}), {t["tools_median"]:.0f} tool calls '
           f'(p90 {t["tools_p90"]:.0f}). {o.get("capped_responses", 0)} responses hit the output cap, '
-          f'{o.get("request_errors", 0)} requests failed.</p>')
+          f'{o.get("request_errors", 0)} requests failed.'
+          + (f' {o["keepalives"]} cache keep-alives during long tool runs ({_usd(o.get("keepalive_cost"))}).'
+             if o.get("keepalives") else '') + '</p>')
 
     a("<h2>Context window over time</h2>")
     a('<p class="muted">One chart per chat, newest first. Hover a marker for what the chat was doing at that moment.</p>')

@@ -30,7 +30,7 @@ class CacheTests(unittest.TestCase):
         for model, key in (('anthropic/claude-opus-5.5', 'cache_control'),
                            ('openai/gpt-6.1-sol', 'prompt_cache_breakpoint')):
             sa, sb = (cache_policy.apply([{'role': 'system', 'content': s}, {'role': 'user', 'content': 'q'}],
-                                         model, 1)[0][0]['content'] for s in (a, b))
+                                         model)[0][0]['content'] for s in (a, b))
             self.assertEqual(sa[0], sb[0])
             self.assertIn(key, sa[0])
             self.assertNotIn(key, sa[1])
@@ -43,7 +43,7 @@ class CacheTests(unittest.TestCase):
         self.assertNotEqual(ka, cache_routing_key(SessionConfig(model='m2', workdirs=['C:/a']), [{'name': 't'}]))
         self.assertNotEqual(ka, cache_routing_key(SessionConfig(model='m1', workdirs=['C:/a']), [{'name': 'u'}]))
         # Without a session part the message is marked as before.
-        plain = cache_policy.apply([{'role': 'system', 'content': 'static only'}], 'anthropic/claude-opus-5.5', 1)[0]
+        plain = cache_policy.apply([{'role': 'system', 'content': 'static only'}], 'anthropic/claude-opus-5.5')[0]
         self.assertEqual(len(plain[0]['content']), 1)
         self.assertIn('cache_control', plain[0]['content'][0])
 
@@ -64,7 +64,7 @@ class CacheTests(unittest.TestCase):
             self.assertIn(phrase, engine)
         for phrase in ('Managing your own context', 'compact_context', 'curate_context'):
             self.assertNotIn(phrase, engine)
-        self.assertIn('Guidelines', off)
+        self.assertIn('How things work', off)
         self.assertIn('Working directories for this chat', off)
         self.assertTrue(off.startswith(on.split('\nContext compaction\n', 1)[0].rstrip('\n')))
         self.assertTrue(engine.startswith(on.split('\nManaging your own context\n', 1)[0].rstrip('\n')))
@@ -73,15 +73,15 @@ class CacheTests(unittest.TestCase):
         messages = [{'role': 'system', 'content': 'system'}, {'role': 'user', 'content': 'long prefix'},
                     {'role': 'assistant', 'content': None, 'tool_calls': []}]
         original = copy.deepcopy(messages)
-        out, anchors = cache_policy.apply(messages, 'anthropic/test', 3)
+        out, anchors = cache_policy.apply(messages, 'anthropic/test', [2])
         self.assertEqual(anchors, [0, 1])
         self.assertIn('cache_control', out[1]['content'][0])
         self.assertEqual(messages, original)
         self.assertIsNone(out[2]['content'])
 
-    def test_old_anchor_retained_after_large_growth_and_ttl(self):
+    def test_rungs_and_ttl(self):
         messages = [{'role': 'user', 'content': str(i)} for i in range(80)]
-        out, anchors = cache_policy.apply(messages, 'anthropic/test', 70, 20, '1h')
+        out, anchors = cache_policy.apply(messages, 'anthropic/test', [20, 69], '1h')
         self.assertEqual(anchors, [20, 69])
         self.assertEqual(out[20]['content'][0]['cache_control']['ttl'], '1h')
         self.assertEqual(out[70]['content'], '70')
@@ -89,40 +89,40 @@ class CacheTests(unittest.TestCase):
     def test_tail_marker_is_extra_and_never_a_stable_anchor(self):
         messages = [{'role': 'system', 'content': 'system'}] + [{'role': 'user', 'content': str(i)} for i in range(1, 80)]
         messages.append({'role': 'tool', 'tool_call_id': 't', 'content': 'latest result'})
-        out, anchors = cache_policy.apply(messages, 'anthropic/test', 70, 20, tail=True)
+        out, anchors = cache_policy.apply(messages, 'anthropic/test', [20, 69], tail=True)
         self.assertEqual(anchors, [0, 20, 69])  # tail excluded: callers persist max(anchors)
         self.assertEqual(out[80]['content'][0]['cache_control'], {'type': 'ephemeral'})
         marked = [i for i, m in enumerate(out) if isinstance(m['content'], list)
                   and any('cache_control' in b for b in m['content'])]
         self.assertEqual(marked, [0, 20, 69, 80])  # within the 4-breakpoint limit
-        # Fully frozen history: the tail coincides with the frozen anchor, no duplicate.
-        out, _ = cache_policy.apply(messages, 'claude-opus-5-5', len(messages), tail=True)
+        # A rung on the last message: the tail coincides with it, no duplicate.
+        out, _ = cache_policy.apply(messages, 'claude-opus-5-5', [len(messages) - 1], tail=True)
         self.assertEqual(sum('cache_control' in b for m in out if isinstance(m['content'], list) for b in m['content']), 2)
         # Default (diagnostics, direct backend) stays without a tail marker.
-        self.assertEqual(cache_policy.apply(messages, 'anthropic/test', 70, 20)[0][80]['content'], 'latest result')
+        self.assertEqual(cache_policy.apply(messages, 'anthropic/test', [20, 69])[0][80]['content'], 'latest result')
         # OpenRouter requests use it; OpenAI-family hints are untouched by it.
-        self.assertIn('cache_control', llm.apply_cache_breakpoints(messages, 'anthropic/test', 70)[80]['content'][0])
-        out, _ = cache_policy.apply(messages, 'openai/gpt-6-astra', 70, tail=True)
+        self.assertIn('cache_control', llm.apply_cache_breakpoints(messages, 'anthropic/test', [69])[80]['content'][0])
+        out, _ = cache_policy.apply(messages, 'openai/gpt-6-astra', [69], tail=True)
         self.assertEqual(out[80]['content'], 'latest result')
 
     def test_openai_explicit_only_supported_family(self):
         messages = [{'role': 'system', 'content': 'system'}, {'role': 'user', 'content': 'data'}]
-        out, anchors = cache_policy.apply(messages, 'openai/gpt-6-astra', 2)
+        out, anchors = cache_policy.apply(messages, 'openai/gpt-6-astra', [1])
         self.assertIn('prompt_cache_breakpoint', out[1]['content'][0])
         self.assertNotIn('cache_control', out[1]['content'][0])
-        self.assertEqual(cache_policy.apply(messages, 'openai/gpt-4.1', 2), (messages, []))
-        self.assertEqual(cache_policy.apply(messages, 'other/model', 2), (messages, []))
+        self.assertEqual(cache_policy.apply(messages, 'openai/gpt-4.1', [1]), (messages, []))
+        self.assertEqual(cache_policy.apply(messages, 'other/model', [1]), (messages, []))
 
     def test_prefix_diagnostics_shared_mutated_schema_model_and_gap(self):
         messages = [{'role': 'system', 'content': 'system'}, {'role': 'user', 'content': 'prefix'}]
-        first = cache_policy.diagnose(messages, [], 'test', 2, None, 'high', 1)
-        same = cache_policy.diagnose(messages + [{'role': 'user', 'content': 'new'}], [], 'test', 2, first, 'high', 2)
+        first = cache_policy.diagnose(messages, [], 'test', None, 'high', 1)
+        same = cache_policy.diagnose(messages + [{'role': 'user', 'content': 'new'}], [], 'test', first, 'high', 2)
         self.assertEqual(same['shared_messages'], 2)
-        changed = cache_policy.diagnose([messages[0], {'role': 'user', 'content': 'changed'}], [], 'test', 2, first, 'high', 400)
+        changed = cache_policy.diagnose([messages[0], {'role': 'user', 'content': 'changed'}], [], 'test', first, 'high', 400)
         self.assertEqual(changed['shared_messages'], 1)
-        self.assertTrue(any('frozen prefix changed' in r for r in changed['reasons']))
+        self.assertTrue(any('prefix changed at message 1' in r for r in changed['reasons']))
         self.assertTrue(any('5 minutes' in r for r in changed['reasons']))
-        schema = cache_policy.diagnose(messages, [{'tool': 'changed'}], 'other', 2, first, 'low', 2)
+        schema = cache_policy.diagnose(messages, [{'tool': 'changed'}], 'other', first, 'low', 2)
         self.assertEqual(schema['shared_messages'], 0)
         self.assertIn('model changed', schema['reasons'])
         self.assertIn('tool schema changed', schema['reasons'])

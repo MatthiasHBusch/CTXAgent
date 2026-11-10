@@ -28,7 +28,7 @@ def anthropic_problems(kw: dict) -> list[str]:
     with patch('ctxagent.anthropic_api.expand_messages', side_effect=lambda m: m):
         req = anthropic_api.build_request(model=kw.get('model', DIRECT), messages=kw['messages'], tools=kw['tools'],
                                           max_tokens=100, reasoning_effort='off',
-                                          frozen_msg_count=kw['frozen_msg_count'], previous_cache_anchor=None,
+                                          cache_anchors=kw.get('cache_anchors') or (),
                                           cache_ttl='5m', uncached_tail=kw.get('uncached_tail', 0))
     out, msgs = [], req['messages']
     for i, m in enumerate(msgs):
@@ -91,32 +91,34 @@ class TurnTests(Base):
                 'path': 'big.gd', 'content': 'func f():\n\tpass\n' * 20000})]}]
         return [{'type': 'text', 'text': 'done'}]
 
-    def test_a_large_call_is_not_frozen_without_its_result(self):
+    def test_a_large_call_keeps_its_result_right_behind_it(self):
         for model in (DIRECT, 'anthropic/claude-opus-5.5'):
             with self.subTest(model=model):
                 s = self.session(model)
                 seen, _ = self.run_turn(s, self.big_write)
                 kinds = [x.kind for x in s.conv.segments]
-                call_at = kinds.index(K_TOOL_CALL)
-                self.assertLessEqual(s.conv.frozen_upto, call_at)         # the group stays hot whole
+                self.assertIn(K_TOOL_CALL, kinds)
                 for kw in seen:
                     self.assertEqual(wire_problems(kw['messages']), [])
                     self.assertEqual(anthropic_problems(kw), [])
                 second = [m['role'] for m in seen[1]['messages']]
                 self.assertEqual(second[second.index('assistant') + 1], 'tool')
 
-    def test_a_chat_frozen_inside_a_group_still_sends_valid_requests(self):
-        # Stored by the older version: the frozen prefix ends right after the call.
-        s = self.session()
-        conv = s.conv
-        conv.new('user', K_USER, 'write it')
-        conv.new('assistant', K_TOOL_CALL, '', tool_calls=[call('toolu_old')])
-        conv.new('tool', K_TOOL_RESULT, 'written', tool_call_id='toolu_old', tool_name='write_file')
-        conv.new('assistant', K_ASSISTANT, 'done')
-        for seg in conv.segments[:3]:
-            seg.frozen = True
-        conv.frozen_upto = 3                                               # system, user, call
-        self.assertEqual(conv.segments[2].kind, K_TOOL_CALL)
+    def test_a_chat_stored_frozen_inside_a_group_still_sends_valid_requests(self):
+        # Stored by an older version: the frozen prefix ended right after the call.
+        old = Conversation()
+        old.new('system', K_SYSTEM, 'system')
+        old.new('user', K_USER, 'write it')
+        old.new('assistant', K_TOOL_CALL, '', tool_calls=[call('toolu_old')])
+        old.new('tool', K_TOOL_RESULT, 'written', tool_call_id='toolu_old', tool_name='write_file')
+        old.new('assistant', K_ASSISTANT, 'done')
+        stored = old.to_dict()
+        stored['frozen_upto'] = 3                                          # system, user, call
+        for d in stored['segments'][:3]:
+            d['frozen'] = True
+        conv = Conversation.from_dict(json.loads(json.dumps(stored)))
+        self.assertFalse(hasattr(conv, 'frozen_upto'))
+        s = self.session(conv=conv)
         seen, _ = self.run_turn(s, lambda n, s: [{'type': 'text', 'text': 'ok'}])
         msgs = seen[0]['messages']
         self.assertEqual(wire_problems(msgs), [])
@@ -124,7 +126,7 @@ class TurnTests(Base):
         roles = [m['role'] for m in msgs]
         tool_at = roles.index('tool')
         self.assertEqual(roles[tool_at - 1], 'assistant')
-        self.assertTrue(any('game.gd' in json.dumps(m) for m in msgs[tool_at + 1:]))   # views behind it
+        self.assertTrue(any('game.gd' in json.dumps(m) for m in msgs))
 
     def test_settings_saved_during_a_turn_apply_at_its_next_request(self):
         s = self.session()
@@ -156,26 +158,17 @@ class UnitTests(unittest.TestCase):
         c.new('assistant', K_ASSISTANT, 'done')
         return c
 
-    def test_freeze_snaps_back_to_the_call(self):
+    def test_group_start_snaps_back_to_the_call(self):
         c = self.conv()
         self.assertEqual(c.group_start(3), 2)
         self.assertEqual(c.group_start(2), 2)
         self.assertEqual(c.group_start(4), 4)
-        c.freeze_prefix(3)
-        self.assertEqual(c.frozen_upto, 2)
-        self.assertFalse(c.segments[2].frozen)
 
     def test_repair_cut_back_inside_a_group_stays_valid(self):
         c = self.conv()
         del c.segments[3]                                   # the result went missing
-        for seg in c.segments:
-            seg.frozen = True
-        c.frozen_upto = len(c.segments)
-        c.repair_tool_pairs()
-        self.assertEqual(c.frozen_upto, 3)                  # the call keeps its cache
+        self.assertTrue(c.repair_tool_pairs())
         self.assertEqual(wire_problems(c.to_messages()), [])
-        c.freeze_prefix(4)                                  # a later freeze moves past the group
-        self.assertEqual(c.frozen_upto, 4)
 
     def test_sources_follow_the_message_order(self):
         c = self.conv()
@@ -203,10 +196,10 @@ class UnitTests(unittest.TestCase):
                               {'role': 'assistant', 'content': None, 'tool_calls': [call('a')]},
                               {'role': 'tool', 'tool_call_id': 'a', 'content': 'r'},
                               {'role': 'user', 'content': 'more'}],
-                 'frozen_msgs': 3, 'previous_anchor': None, 'sent_at': 0}
+                 'anchors': [2], 'sent_at': 0}
         share = PrefixShare(frame, None, 100)
         self.assertEqual(share.upto(2), 5)                  # not 3: that ends on the open call
-        frame['frozen_msgs'] = 4
+        frame['anchors'] = [3]
         self.assertEqual(share.upto(2), 4)
 
 

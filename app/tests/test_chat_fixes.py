@@ -53,7 +53,7 @@ class FixTests(unittest.IsolatedAsyncioTestCase):
         defaults.save(cfg.to_dict())
         clone = defaults.create_config()
         self.assertEqual(clone.to_dict(), cfg.to_dict())
-        other = defaults.create_config({'compaction': {'hot_zone_tokens': 12000}, 'enabled_tools': []})
+        other = defaults.create_config({'compaction': {'deep_min_gain_tokens': 12000}, 'enabled_tools': []})
         self.assertFalse(other.compaction.summary_share_prefix)
         self.assertEqual(other.compaction.summary_pricing_mode, 'prefer_flex')
         session = AgentSession('empty', other, Conversation())
@@ -92,7 +92,7 @@ class FixTests(unittest.IsolatedAsyncioTestCase):
             enabled_tools=['read_file'], agent_max_parallel=3,
             agent_max_depth=1, agent_timeout_seconds=123).to_dict()
         cfg['compaction'].update(summary_share_prefix=False,
-            hot_zone_tokens=12345, summary_model='source/summary',
+            deep_min_gain_tokens=12345, summary_model='source/summary',
             summary_pricing_mode='flex_only', rewrite_interval_batches=10)
         cid = store.create_chat('source', cfg)
         store.save_chat(cid, conversation=self.trajectory().to_dict(),
@@ -106,12 +106,12 @@ class FixTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(new['config'], cfg)
         self.assertEqual(new['title'], 'New chat')
         self.assertEqual(new['conversation']['segments'], [])
-        self.assertEqual(new['conversation']['frozen_upto'], 0)
+        self.assertNotIn('frozen_upto', new['conversation'])
         self.assertFalse(new['conversation'].get('workspace'))
         self.assertEqual(new['usage'], {})
         self.assertEqual(new['compaction_log'], [])
         new['config']['workdirs'].clear()
-        new['config']['compaction']['hot_zone_tokens'] = 999
+        new['config']['compaction']['deep_min_gain_tokens'] = 999
         store.save_chat(new['id'], config=new['config'])
         self.assertEqual(store.get_chat(cid), original)
         self.assertEqual(defaults.get(), template)
@@ -125,12 +125,12 @@ class FixTests(unittest.IsolatedAsyncioTestCase):
         cid = store.create_chat('source', cfg)
         async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url='http://test') as client:
             response = await client.post('/api/chats', json={'source_chat':cid,
-                'config':{'compaction':{'hot_zone_tokens':12345}}})
+                'config':{'compaction':{'deep_min_gain_tokens':12345}}})
             self.assertEqual(response.status_code, 200)
             bad = await client.post('/api/chats', json={'source_chat':cid,
                 'config':{'pricing_mode':'invalid'}})
             self.assertEqual(bad.status_code, 422)
-        expected = defaults.merged(cfg, {'compaction':{'hot_zone_tokens':12345}})
+        expected = defaults.merged(cfg, {'compaction':{'deep_min_gain_tokens':12345}})
         self.assertEqual(store.get_chat(response.json()['id'])['config'], expected)
         self.assertEqual(store.get_chat(cid)['config'], cfg)
 
@@ -162,7 +162,6 @@ class FixTests(unittest.IsolatedAsyncioTestCase):
         for _ in range(8):
             await e.run(c, 20000)
         self.assertEqual(before, c.to_messages())
-        self.assertGreater(c.frozen_upto, 0)
         fn.assert_not_called()
 
     async def test_deep_targets_remaining_total_not_tail_alone(self):

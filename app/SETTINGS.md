@@ -25,6 +25,64 @@ compact gates, hint policy, absolute deep trigger, the 'economics' and
 chats and profiles are ignored; a chat that used a removed prompt variant gets
 the standard text.
 
+### Review hints and curate
+
+A review hint comes every **20** completed tool batches (Engine, "Review hint every N
+completed tool batches"), earlier only when the context passes the pressure share of the
+window (default 70 %), and never more often than the interval. The hint is one line appended
+to the newest tool result, `[harness: context review due; cache breakpoints after item 6 =
+grep_search result (a.py:1 foo) and after item 10 = run_command result (BUILD LOG)]`. It names
+the item before each cache breakpoint the next request sends in the history (at most two;
+`cache_policy.plan_rungs`) by its curate reference and a few words: replacing an item re-writes
+everything behind the nearest breakpoint before it, so the items behind one breakpoint are
+best replaced in one call. Without a breakpoint in the history it says so; for a model
+without explicit cache breakpoints it is `[harness: context review due]`. What a review is and how
+`curate_context` works is in the system prompt ("Managing your own context"). The hint on new
+tokens since the last review ("Earlier hint: new tokens") was removed on 2026-11-10; the
+setting in older chats is ignored. A curate or compact that changes something restarts the
+count.
+
+`curate_context(reference1, replacement1, reference2, replacement2, ...)` replaces items by the
+model's own text. A reference counts back from the newest item before the call: 1 is the
+newest tool result, tool call or answer, 2 the one before, and so on. An answer is an
+assistant message without tool calls; text written alongside tool calls, user messages,
+summaries and harness messages are not counted (in a live check, Opus 5.5 counted that way in
+4 of 4 replies). A replaced result or answer becomes
+`[replaced: <text> | recall(segment_id="...") restores the original]`; a replaced tool call
+keeps its name and gets the arguments `{"replaced": <text>, "recall_segment_id": ...}`. The
+result names what each reference hit, so a miscount shows. A call without pairs changes
+nothing. There is no listing and no frozen part any more: any item can be replaced.
+
+Nothing is frozen since 2026-11-10 (the "Recent working tail", "Protected observations" and
+"Review before freezing" settings are gone; their keys in older chats are ignored). Which
+cache points a request sends is decided per request (`cache_policy.plan_rungs`, see
+README.md, "Cache points"), so a replacement re-writes the cache from the newest cache point
+before the oldest replaced item: recent items are cheap to replace, old ones cost about as
+much as the context after them. `recall` returns the original as a new result and no longer
+restores it in place, which would re-write the cache from there.
+
+### Cache keep-alive
+
+Engine, "Keep the prompt cache warm while tools run" (on by default; Claude models, direct or
+through OpenRouter). Anthropic's prompt cache lives 5 minutes from the last request that read or
+wrote it. While a tool batch runs longer (a build, a test suite, `job_wait`, `agent_wait`), the
+app re-sends the last request every 4.5 minutes without output: `max_tokens: 0` on the direct
+API, `max_tokens: 1` (non-streamed, same payload and `session_id`, so sticky routing reaches the
+provider that holds the cache) on OpenRouter, which has no `max_tokens: 0`. The provider reads
+the cached prompt and restarts the timer. A keep-alive costs a cache read of the prompt ($0.20
+per million tokens on Opus 5.5: $0.04 at 200k, about $0.53 per hour of waiting); an expired cache
+costs a full write ($5 per million: $1.00 at 200k).
+
+After half as many keep-alives as one rewrite costs (half the write/read price ratio: 12 on Opus
+5.5, so the cache stays warm for about 58 minutes) the cache is let go, so a wait of any length
+costs at most 1.5 rewrites. A keep-alive that wrote more than 20 % of its prompt did not hit the
+cache: none more in that batch, and none in the chat after two such misses. If the API refuses a
+keep-alive, none more on that route for the rest of the session. Models without a write premium
+(OpenAI on OpenRouter) get none. Keep-alives appear in the usage panel ("Cache keep-alives") and
+in the insights report, apart from the model requests. A 1-hour cache TTL was considered instead:
+on a long game-project session it would have cost $15.72 more (every write at 2x input instead of 1.25x),
+keep-alives $21.49 less.
+
 ## API keys
 
 | Name | Used for |
@@ -99,8 +157,8 @@ automatically. Working directories are per chat and never part of a profile.
   | Gemini 4 Argon | `google/gemini-4-argon` | 400k | engine |
 
   The self-steered starters use the compaction settings of the benchmark's
-  frozen live configuration: review hints at most every 25 tool batches, the
-  deep safety net at 90 % of the window. Sonnet and Terra joined them on
+  live configuration (without its frozen prefix, removed on 2026-11-10): review
+  hints at most every 25 tool batches, the deep safety net at 90 % of the window. Sonnet and Terra joined them on
   2026-11-05 after the self-steered comparison of the benchmark; Gemini 4 Argon never compacted there and stays on the engine defaults. They use OpenRouter ids; for the direct Anthropic API duplicate one
   and use the bare id (`claude-opus-5-5`). A chat created from a starter that no
   longer exists, such as the former Haiku 5.5 starter, keeps its settings and

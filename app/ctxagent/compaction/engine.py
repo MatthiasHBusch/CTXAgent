@@ -7,19 +7,13 @@ Runs after every tool batch and every finished answer. It compacts in one way:
                       go to the archive (recall restores them)
 
 It runs when the context reaches `deep_trigger_ratio` of the window (or when forced:
-the Compact button, compact_now). Between deep compactions the engine only freezes the
-older history (the cache-stable prefix). Self-steered chats (rewrite_policy='agent')
-manage their context themselves with compact_context and curate_context; the engine
-appends a review hint to the newest tool result when a review is due and keeps deep
-compaction as the safety net.
+the Compact button, compact_now). Self-steered chats (rewrite_policy='agent') manage their
+context themselves with compact_context and curate_context; the engine appends a review
+hint to the newest tool result when a review is due and keeps deep compaction as the
+safety net. Which cache points the next request sends is cache_policy.plan_rungs' job.
 
-Two invariants hold at all times:
-
- I1  Segments before `conv.frozen_upto` keep their bytes: the frozen prefix is what the
-     provider has cached. Only a deep compaction (or compact_context) rebuilds it.
-
- I2  The assistant(tool_calls) -> tool(tool_call_id) pairing is never broken. Deep
-     compaction removes whole tool groups (deep_plan.groups).
+The assistant(tool_calls) -> tool(tool_call_id) pairing is never broken: deep compaction
+removes whole tool groups (deep_plan.groups).
 """
 
 from __future__ import annotations
@@ -28,7 +22,7 @@ import time
 
 from ..segments import Conversation, Segment, K_SYSTEM, K_TOOL_CALL, K_TOOL_RESULT, K_SUMMARY
 from .. import tokens
-from . import summarize, deep_plan, freeze_review
+from . import summarize, deep_plan
 
 
 class CompactionReport(dict):
@@ -113,9 +107,6 @@ class CompactionEngine:
 
         if completed_batch:
             schedule['batches'] = schedule.get('batches', 0) + 1
-        last_seq = schedule.get('seen_seq', -1)
-        schedule['new_tokens'] = schedule.get('new_tokens', 0) + sum(seg.tokens() for seg in conv if seg.seq > last_seq)
-        schedule['seen_seq'] = max((seg.seq for seg in conv), default=last_seq)
         pressure = _pressure(before_total, effective_window)
         report['pressure'] = round(pressure, 4)
         # The trigger is a share of the window; the session's usable window (output and
@@ -126,26 +117,8 @@ class CompactionEngine:
         want_deep = force_deep or (cfg.deep_enabled and pressure >= trigger
                                    and self.turns_since_deep >= cfg.deep_cooldown_turns)
 
-        # The hint goes in before the freeze: the newest result may itself fall outside
-        # the working tail, and its bytes must not change once frozen.
         if cfg.self_steered and not want_deep:
             self._hint(conv, report, pressure, completed_batch, clock)
-
-        # Without review_before_freeze, everything older than the working tail is frozen
-        # each cycle. With it, fresh and protected results stay out of the frozen prefix
-        # (freeze_review.plan); self-steered, the prefix then advances only when the model
-        # curates or compacts, and after a deep compaction.
-        if not cfg.review_before_freeze:
-            newly_frozen = conv.freeze_prefix(conv.compute_hot_start(cfg.hot_zone_tokens))
-        elif cfg.self_steered:
-            newly_frozen = 0
-        else:
-            newly_frozen = conv.freeze_prefix(freeze_review.plan(conv, cfg)['end'])
-            if newly_frozen:
-                schedule['reviewed_through_seq'] = max(s.seq for s in conv.segments[:conv.frozen_upto])
-        report['newly_frozen'] = newly_frozen
-        report['hot_start'] = report['frozen_segments'] = conv.frozen_upto
-        report['frozen_tokens'] = sum(s.tokens() for s in conv.segments[:conv.frozen_upto])
 
         if want_deep:
             r = await self._deep(conv, tool_overhead, instructions, force_deep)
@@ -155,40 +128,38 @@ class CompactionEngine:
                 report["freed"] += r.get("freed", 0)
         report["after"] = conv.total_tokens() + tool_overhead
         if report['deep']:
-            schedule['batches'] = schedule['new_tokens'] = 0
+            schedule['batches'] = 0
             schedule.pop('review_due', None)
             schedule['last_reason'] = 'forced' if force_deep else 'pressure'
-            report['hot_start'] = report['frozen_segments'] = conv.frozen_upto
-            report['frozen_tokens'] = sum(s.tokens() for s in conv.segments[:conv.frozen_upto])
         report["duration_ms"] = int((time.time() - t0) * 1000)
         return report
 
     # ------------------------------------------------------------------
     def _hint(self, conv: Conversation, report: dict, pressure: float, completed_batch: bool, clock: int) -> None:
-        """Self-steered: when a review is due, append a one-line hint to the newest tool
-        result (not yet sent to the model, so appending is cache-safe)."""
+        """Self-steered: when a review is due, append the hint to the newest tool result (not
+        yet sent to the model, so appending is cache-safe). The hint names the cache
+        breakpoints in the history (curate.hint); what a review is, and how curate_context
+        works, the system prompt says."""
         from . import curate
         cfg = self.cfg
         schedule = conv.compaction_state
         reason = ('pressure' if pressure >= cfg.rewrite_pressure_ratio else
-                  'large new context' if schedule.get('new_tokens', 0) >= cfg.rewrite_max_new_tokens else
                   'batch interval' if schedule.get('batches', 0) >= cfg.rewrite_interval_batches else None)
         if reason is None:
             return
         schedule.setdefault('review_due', {'since_batch': clock, 'reason': reason})
         report['schedule'] = {'reason': 'agent review due (' + reason + ')',
-                              'pending_batches': schedule.get('batches', 0),
-                              'new_tokens': schedule.get('new_tokens', 0), 'interval': cfg.rewrite_interval_batches}
+                              'pending_batches': schedule.get('batches', 0), 'interval': cfg.rewrite_interval_batches}
         last_hint = schedule.get('review_hint_batch')
         if not completed_batch or (last_hint is not None and clock - last_hint < cfg.rewrite_interval_batches):
             return
         segs = conv.segments
         last_call = max((i for i, s in enumerate(segs) if s.kind == K_TOOL_CALL), default=None)
         target = next((s for s in reversed(segs[last_call:] if last_call is not None else [])
-                       if s.kind == K_TOOL_RESULT and not s.frozen), None)
+                       if s.kind == K_TOOL_RESULT), None)
         if target is None:
             return
-        hint = curate.hint_text(conv, cfg, schedule.get('batches', 0), reason)
+        hint = curate.hint(conv)
         target.body = (target.body or '') + '\n\n' + hint
         target.invalidate()
         schedule['review_hint_batch'] = clock
@@ -243,13 +214,6 @@ class CompactionEngine:
         while head < len(retained) and retained[head].kind == K_SYSTEM:
             head += 1
         conv.segments = retained[:head] + [summary_seg] + retained[head:]
-        for s in conv:
-            s.frozen = False
-        conv.frozen_upto = 0
-        conv.freeze_prefix(head + 1)
-        if cfg.review_before_freeze:
-            # The new summary was checked for emptiness, budget and net gain.
-            conv.compaction_state['reviewed_through_seq'] = summary_seg.seq
         self.turns_since_deep = 0
         conv.compaction_state['turns_since_deep'] = 0
         blocked = after > plan['target_tokens']
@@ -274,36 +238,22 @@ class CompactionEngine:
     def stats(self, conv: Conversation, effective_window: int, tool_overhead: int = 0) -> dict:
         """Snapshot for the context-inspector panel."""
         cfg = self.cfg
-        hot_start = conv.frozen_upto  # actual boundary, not the prospective next freeze
-        frozen_tokens = sum(s.tokens() for s in conv.segments[:hot_start])
-        hot_tokens = sum(s.tokens() for s in conv.segments[hot_start:])
         total = conv.total_tokens() + tool_overhead
         by_state: dict[str, int] = {}
         by_kind: dict[str, int] = {}
         for s in conv.segments:
             by_state[s.state] = by_state.get(s.state, 0) + s.tokens()
             by_kind[s.kind] = by_kind.get(s.kind, 0) + s.tokens()
-        review = freeze_review.plan(conv, cfg) if cfg.review_before_freeze else None
-        candidate = sum(s.tokens() for s in conv.segments[hot_start:review['end']]) if review else 0
         return {
             "total": total,
             "original": conv.original_tokens() + tool_overhead,
             "saved": max(0, conv.original_tokens() - conv.total_tokens()),
             "effective_window": effective_window,
             "pressure": round(_pressure(total, effective_window), 4),
-            "frozen_tokens": frozen_tokens,
-            "hot_tokens": hot_tokens,
-            "hot_zone_budget": cfg.hot_zone_tokens,
-            "hot_excess_tokens": max(0, hot_tokens - cfg.hot_zone_tokens),
-            "review_candidate_tokens": candidate,
-            "review_before_freeze": cfg.review_before_freeze,
             "initial_result_max_tokens": cfg.initial_result_max_tokens,
-            "reviewed_through_seq": conv.compaction_state.get('reviewed_through_seq'),
             "rewrite_interval_batches": cfg.rewrite_interval_batches,
             "rewrite_pending_batches": conv.compaction_state.get('batches', 0),
-            "rewrite_new_tokens": conv.compaction_state.get('new_tokens', 0),
             "rewrite_last_reason": conv.compaction_state.get('last_reason'),
-            "hot_start": hot_start,
             "tool_overhead": tool_overhead,
             "segments": len(conv.segments),
             "by_state": by_state,

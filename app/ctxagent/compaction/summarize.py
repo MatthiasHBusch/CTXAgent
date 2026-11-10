@@ -40,8 +40,8 @@ class PrefixShare:
     summariser paying full input price for a re-rendered transcript.
 
     ``frame`` keys: messages (as passed to llm.stream_chat, before cache marking),
-    seg_ids (segment id per message, None for live views), frozen_msgs,
-    previous_anchor, sent_at. ``run(messages, max_tokens) -> str`` sends with the
+    seg_ids (segment id per message, None for live views), anchors (the rungs it
+    marked, cache_policy.plan_rungs), sent_at. ``run(messages, max_tokens) -> str`` sends with the
     frame's model/tools/breakpoints/routing and accounts the usage as a summary call.
     """
 
@@ -61,12 +61,12 @@ class PrefixShare:
             return None
 
     def upto(self, cut: int) -> int:
-        """Smallest cached boundary at or after message `cut`: the frame's frozen end,
-        previous anchor, or (always cached) its full length."""
+        """Smallest cached boundary at or after message `cut`: one of the frame's rungs, or
+        (always cached) its full length."""
         messages = self.frame["messages"]
         n = len(messages)
         bounds = [n]
-        for idx in (self.frame.get("previous_anchor"), (self.frame.get("frozen_msgs") or 0) - 1):
+        for idx in self.frame.get("anchors") or ():
             # Not between a call and its results: the appended instruction would follow
             # an unanswered call, which the API rejects.
             if idx is not None and 0 <= idx < n and (idx + 1 == n or messages[idx + 1].get("role") != "tool"):

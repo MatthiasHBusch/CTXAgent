@@ -12,8 +12,8 @@ per-token prices r (cache read) and w (cache write):
 
 so the same drop that pays after a dozen requests on a 1:12.5 price list (Haiku, Astra)
 needs fifty on 1:50 (Fable). `R` is what the provider actually re-sends: with explicit
-breakpoints (Anthropic family) everything after the frozen prefix, not just the suffix
-after the dropped result. The expected number of later requests is the Copernican
+breakpoints (Anthropic family) everything after the newest cache rung before the change
+(cache_policy.plan_rungs), not just the suffix after the changed item. The expected number of later requests is the Copernican
 estimate: as many as since the last compaction, clamped to [rewrite_horizon_min,
 rewrite_horizon_max].
 """
@@ -42,15 +42,6 @@ def rates(usage: dict | None, fallback_ratio: float = 20.0) -> dict:
 def cache_family(model: str) -> str:
     from ..cache_policy import cache_family as fam
     return 'breakpoints' if fam(model or '') == 'anthropic' else 'prefix'
-
-
-def cached_boundary(conv: Conversation, first_change: int, family: str, tool_overhead: int = 0) -> int:
-    """Prompt tokens the next request can still read from cache when segment `first_change`
-    is the first one to change: the frozen prefix under explicit breakpoints (its end is a
-    breakpoint every request writes), the whole unchanged prefix under automatic caching."""
-    segs = conv.segments
-    end = first_change if family == 'prefix' else min(first_change, conv.frozen_upto)
-    return tool_overhead + sum(s.tokens() for s in segs[:max(0, end)])
 
 
 def horizon(conv: Conversation, cfg) -> int:
