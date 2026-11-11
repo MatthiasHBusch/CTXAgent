@@ -116,20 +116,40 @@ every token after it; that is the constraint the rest of the design bends around
 Anthropic caches only where a request puts a breakpoint (at most 4 per request), and
 an entry lives 5 minutes from the last request that read or wrote it. So every
 request marks the static system prompt, two **rungs** in the history and the tail
-(`cache_policy.plan_rungs`); marking a rung again keeps its entry warm. A rung is
+(`cache_policy.plan_rungs`); marking a rung again keeps its entry warm. A breakpoint
+on a message writes an entry there at no extra cost
+([Anthropic, prompt caching](https://platform.claude.com/docs/en/build-with-claude/prompt-caching)),
+so the rungs are placed where they help:
 
-* the last unchanged message before a change (a curate replaced an item, a live
-  view changed): the next change behind it re-writes only what follows, and
-* the previous request's tail once the history behind the newest rung has grown by
-  20k tokens (or the request appended more messages than a breakpoint's 20-block
-  look-back reaches).
+* the **near rung** about 50k tokens before the end of the history (in a history
+  below 100k in its middle), and
+* the **far rung** halfway between the start and the near rung's place. Half of the
+  whole history would coincide with the near rung at 100k and stay within 50k of it
+  up to 200k.
 
-A change re-writes from the newest valid rung before it, so replacing recent items
-is cheap; replacing an item before both rungs re-writes everything after the system
-prompt. Live views (documents, browser tabs) go behind the previous request's end when
-they appear or change, and stay there while they are unchanged; the message before
-them is one of the two rungs as long as they are open. A view change therefore
-re-writes the views and the history that came after them, not the history before.
+A rung stays on its message while it is within a tolerance of that place (the near
+one up to 75k before the end, the far one within a quarter of its place), so
+that one entry serves many requests. A change (a curate replaced an item, a live view
+changed) is re-written from the newest rung before it. That request marks the last
+unchanged message, which is the near rung from then on: the next change behind it
+re-writes only what follows. A request that appends more messages than a breakpoint's
+20-block look-back reaches has the previous request's tail as its near rung.
+
+So replacing items behind the near rung re-writes 50 to 75k tokens, items between the
+rungs what follows the far rung (about half of the history plus 25k), and an item before
+the far rung everything after the system prompt. Until 2026-11-11 both rungs followed the end of the history in 20k
+steps, and a curate that reached further back than about 40k had nothing to read from.
+
+Live views (the operation catalog, each open document, each browser tab) are messages
+of their own. They go into the history behind the previous request's end when they
+appear or change, and stay there while they are unchanged; the message before them is
+one of the two rungs as long as they are open. There a view is read from the cache,
+but a new version re-writes the views and the history that came after them. A view
+that changes again within two requests of its last change (a document being edited,
+with or without a test run in between) is therefore sent at the **end** of the
+request, behind the tail mark, until it has been unchanged for two requests
+(`cache_policy.restless_views`): uncached, but a new version costs only itself. The
+canvas image is always sent there.
 Until 2026-11-10 everything older than the newest 50k tokens was frozen instead and
 could not be curated.
 

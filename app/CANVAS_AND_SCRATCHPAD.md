@@ -60,7 +60,8 @@ Native tools:
 
 - `canvas_open(path | width, height, background, label)`: an image file, or a blank
   canvas (default 1600×1000, at most 4096 px per side). Opening another replaces it.
-- `view_image(path, canvas=true)`: the same as `canvas_open(path)`.
+- `view_image(path, canvas=true)`: the same as `canvas_open(path)`; refused while the
+  canvas tools are off for the chat, since nothing could close the canvas again.
 - `canvas_close()`.
 
 Operations, available only while a canvas is open (through the operation catalog,
@@ -72,7 +73,8 @@ or as native deferred tools on the direct Anthropic API, see below):
   background box, border, padding), `erase` (back to the background), `paste` (an
   image file fitted into a box). Coordinates are canvas pixels. Colours are CSS names
   or `#rrggbb` / `#rrggbbaa`; translucent shapes blend. At most 300 shapes per call;
-  an invalid shape rejects the whole call and leaves the canvas unchanged.
+  an invalid shape rejects the whole call and leaves the canvas unchanged. The result
+  lists the box each text took (`text_boxes`, by position in `ops`).
 - `canvas_script(code, label, timeout)`: Python with Pillow and numpy in its own
   process (default timeout 60 s, at most 300 s). It gets `img` (the current version,
   RGBA), `draw`, `W`, `H`, `font(size)`, the Pillow modules and `np`; whatever `img`

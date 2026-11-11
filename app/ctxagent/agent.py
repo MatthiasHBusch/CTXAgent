@@ -81,6 +81,8 @@ A [harness: ...] line at the end of a tool result says that a context review is 
 names the item before each history breakpoint: its reference, as counted then, and a few
 words of it. Items behind the same breakpoint are re-sent together, so they are best
 replaced in one call.
+Closing a live document, a browser tab or the canvas changes the context too. In the
+same response as a curate or compact call, the cache is re-written once for all of it.
 """
 
 
@@ -360,6 +362,15 @@ class AgentSession:
         return (self.conv.workspace.token_count() + self.conv.browser.token_count()
                 + document_catalog.token_count(self) + self.conv.canvas.token_count()
                 + (dynamic_tools.surfaced_tokens(self) if dynamic_tools.active(self) else 0))
+
+    def live_views(self) -> list[tuple[str, dict]]:
+        """The live views as (key, message): the operation catalog, one message per open
+        document and per browser tab. The canvas image is not among them; it always goes last."""
+        from . import document_catalog
+        documents, tabs = self.conv.workspace, self.conv.browser
+        return ([('catalog', m) for m in document_catalog.messages(self)]
+                + [(f"document {v['id']}", m) for v, m in zip(documents.views, documents.messages())]
+                + [(f"tab {v['id']}", m) for v, m in zip(tabs.views, tabs.messages())])
 
     def stats(self) -> dict:
         from . import document_catalog
@@ -776,22 +787,30 @@ class AgentSession:
                 dynamic_tools.sync(self)
             sources: list[tuple[int, str | None]] = []
             history = self.conv.to_messages(sources)
-            from . import document_catalog
-            views = document_catalog.messages(self) + self.conv.workspace.messages() + self.conv.browser.messages()
             schema = self.tool_schema()
             prior = self.conv.cache_state
             effort = effort_override or self.cfg.reasoning_effort
+            # Live views: the ones being worked on go to the end of the request, the others
+            # into the history (cache_policy.restless_views, plan_rungs).
+            live = self.live_views()
+            seen = {key: cache_policy.digest(m) for key, m in live}
+            calm, restless = cache_policy.restless_views(prior, seen)
+            views = [m for key, m in live if key not in restless]
             # Cache rungs (cache_policy.plan_rungs), counted on the history messages: results
             # follow their call, and placeholders or dropped duplicates make the message and
             # segment counts differ.
             # Every message is hashed and counted once, for the plan and for the diagnostic.
             history_hashes = [cache_policy.digest(m) for m in history]
             history_sizes = [tokens.count_message(m) for m in history]
-            view_hashes = [cache_policy.digest(m) for m in views]
+            view_hashes = [seen[key] for key, _ in live if key not in restless]
             views_hash = cache_policy.digest(view_hashes)
+            # The newest step starts at the last assistant or user message; views without a
+            # previous place go in front of it.
+            newest = next((i for i in range(len(history) - 1, -1, -1) if history[i].get("role") != "tool"), 0)
             plan = cache_policy.plan_rungs(
                 prior if cache_policy.same_cache(prior, schema, self.cfg.model, effort) else None,
-                history_hashes, history_sizes, views_hash, len(views))
+                history_hashes, history_sizes, views_hash, len(views), before_step=newest - 1,
+                scale=self.token_calibration())
             slot = max(plan['views_at'] + 1, int(bool(history and history[0].get("role") in ("system", "developer"))))
             # Never between a call and its results: the views go behind the results.
             while slot < len(history) and history[slot].get("role") == "tool":
@@ -814,6 +833,8 @@ class AgentSession:
             diagnostic.update({'history_hashes': history_hashes, 'views_hash': views_hash, 'views_count': len(views),
                                'views_at': plan['views_at'], 'rungs': plan['rungs'], 'history_tail': history_tail,
                                'anchors': anchors, 'edit_at': plan['edit_at'],
+                               'view_hashes': seen, 'views_calm': calm, 'views_restless': sorted(restless),
+                               'token_scale': self.token_calibration(),
                                'rung_segments': [sources[h][1] for h in plan['rungs'] if h < len(sources)]})
             self.conv.cache_state = diagnostic
             # The exact request, for a summariser that shares this cached prefix (summarize.PrefixShare).
@@ -829,9 +850,10 @@ class AgentSession:
             reasoning_details = []
             usage_record = None
 
-            # The canvas goes last, behind the tail cache mark: a new version re-sends only
-            # its image (canvas.py). _last_request above keeps the prefix without it.
-            trailer = self.conv.canvas.messages()
+            # Behind the tail cache mark: the restless views, and last the canvas, of which a
+            # new version re-sends only its image (canvas.py). _last_request above keeps the
+            # prefix without them.
+            trailer = [m for key, m in live if key in restless] + self.conv.canvas.messages()
 
             # Unlimited output: the model's maximum, as far as the window has room.
             max_tokens = self.cfg.request_max_tokens(

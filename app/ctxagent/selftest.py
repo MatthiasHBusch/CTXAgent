@@ -72,6 +72,13 @@ def main(argv: list[str]) -> int:
             checks[name] = True
         except Exception:  # noqa: BLE001
             checks[name] = False
+    # One streamed request through the SDK against a local stand-in for the API: the
+    # SDK imports its resources, types and HTTP transport only when a request runs.
+    try:
+        checks["anthropic_request"] = _anthropic_round_trip() == "selftest-ok"
+    except Exception as exc:  # noqa: BLE001
+        checks["anthropic_request"] = False
+        report["anthropic_request"] = {"error": f"{type(exc).__name__}: {exc}"}
     report["optional_modules"] = {}
     for name in OPTIONAL:
         try:
@@ -167,6 +174,65 @@ def main(argv: list[str]) -> int:
         if folder:
             shutil.rmtree(folder, ignore_errors=True)
     return 0 if report["ok"] else 1
+
+
+def _anthropic_round_trip() -> str:
+    """Stream one message from a local fake of the Messages API; return its text."""
+    import asyncio
+    import threading
+    from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+
+    import anthropic
+
+    events = [
+        ("message_start", {"type": "message_start", "message": {
+            "id": "msg_selftest", "type": "message", "role": "assistant", "model": "claude-selftest",
+            "content": [], "stop_reason": None, "stop_sequence": None,
+            "usage": {"input_tokens": 1, "output_tokens": 1}}}),
+        ("content_block_start", {"type": "content_block_start", "index": 0,
+                                 "content_block": {"type": "text", "text": ""}}),
+        ("content_block_delta", {"type": "content_block_delta", "index": 0,
+                                 "delta": {"type": "text_delta", "text": "selftest-ok"}}),
+        ("content_block_stop", {"type": "content_block_stop", "index": 0}),
+        ("message_delta", {"type": "message_delta", "delta": {"stop_reason": "end_turn", "stop_sequence": None},
+                           "usage": {"output_tokens": 2}}),
+        ("message_stop", {"type": "message_stop"}),
+    ]
+    body = "".join(f"event: {name}\ndata: {json.dumps(data)}\n\n" for name, data in events).encode()
+
+    class Handler(BaseHTTPRequestHandler):
+        def log_message(self, *args):
+            pass
+
+        def do_POST(self):
+            self.rfile.read(int(self.headers.get("content-length") or 0))
+            self.send_response(200)
+            self.send_header("content-type", "text/event-stream")
+            self.send_header("content-length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+    server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+
+    async def run() -> str:
+        client = anthropic.AsyncAnthropic(api_key="selftest", max_retries=0, timeout=30,
+                                          base_url=f"http://127.0.0.1:{server.server_address[1]}")
+        text = ""
+        stream = await client.beta.messages.create(
+            stream=True, model="claude-selftest", max_tokens=8,
+            messages=[{"role": "user", "content": "selftest"}])
+        async for event in stream:
+            if event.type == "content_block_delta" and event.delta.type == "text_delta":
+                text += event.delta.text
+        await client.close()
+        return text
+
+    try:
+        return asyncio.run(run())
+    finally:
+        server.shutdown()
+        server.server_close()
 
 
 if __name__ == "__main__":

@@ -37,7 +37,9 @@ the item before each cache breakpoint the next request sends in the history (at 
 everything behind the nearest breakpoint before it, so the items behind one breakpoint are
 best replaced in one call. Without a breakpoint in the history it says so; for a model
 without explicit cache breakpoints it is `[harness: context review due]`. What a review is and how
-`curate_context` works is in the system prompt ("Managing your own context"). The hint on new
+`curate_context` works is in the system prompt ("Managing your own context"), which also says
+to close live documents, browser tabs or the canvas in the same response as a curate or compact
+call: each of them changes the context, and together the cache is re-written once. The hint on new
 tokens since the last review ("Earlier hint: new tokens") was removed on 2026-11-10; the
 setting in older chats is ignored. A curate or compact that changes something restarts the
 count.

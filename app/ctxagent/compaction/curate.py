@@ -122,7 +122,8 @@ def breakpoints(conv: Conversation) -> list[tuple[int, Item]] | None:
     known = list(state['history_hashes'])[:len(history)]
     plan = cache_policy.plan_rungs(state, known + [''] * (len(history) - len(known)),
                                    [tokens.count_message(m) for m in history],
-                                   state.get('views_hash'), int(state.get('views_count') or 0))
+                                   state.get('views_hash'), int(state.get('views_count') or 0),
+                                   scale=state.get('token_scale') or 1.0)
     placed = _placed(conv, False, sources)
     out: list[tuple[int, Item]] = []
     for rung in sorted(plan['rungs'], reverse=True):

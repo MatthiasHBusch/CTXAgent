@@ -108,8 +108,9 @@ class GuidancePromptTests(unittest.TestCase):
         live = agentmod.static_instructions(steered(guidance='live'))
         self.assertNotEqual(live, default)
         self.assertTrue(live.startswith(default.split(agentmod.MANAGE_MARKER)[0]))
-        # A few lines at most (the curate paragraph explains the references since 2026-11-10).
-        self.assertLess(abs(tokens.count(live) - tokens.count(default)), 150)
+        # A few lines at most (the default explains the curate references since 2026-11-10 and
+        # says to close live views together with a curate since 2026-11-11).
+        self.assertLess(abs(tokens.count(live) - tokens.count(default)), 200)
         self.assertIn('Facts the user stated', live)
         self.assertEqual(set(agentmod.GUIDANCE_SECTIONS) | {'default'}, set(GUIDANCE))
         # engine off: the context sections go, whatever the variant

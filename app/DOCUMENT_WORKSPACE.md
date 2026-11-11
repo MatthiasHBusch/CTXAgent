@@ -42,10 +42,10 @@ from disk and hashed; mtime/size alone are not trusted. Before/after hashes catc
 changes during extraction. Permissions and roots are rechecked on refresh.
 External changes take effect on the **next request**, not during an in-flight one.
 
-The frozen prefix contains only historical segments. Changing/closing a document
-does not rewrite that prefix, although the working-tail suffix can lose cache reuse. Unchanged views remain
-ahead of newly appended tool results so their position is stable between freeze
-reviews; unlike an end-of-request append, this allows shared-prefix reuse.
+Each open document is a message of its own. Its place in the request follows the
+provider cache (README.md, "Cache points"): in the history behind the previous
+request's end while it is unchanged, where it is read from the cache; at the end of
+the request while it is being edited, where a new version costs only itself.
 Workspace tokens contribute to occupancy and compaction pressure but cannot be
 silently summarized away. Unavailable files and oversized updates have visible
 error frames with **no stale payload** and can recover on a later refresh.
@@ -77,10 +77,11 @@ parameter schemas appear only in the generated catalog for compatible, ready
 views. `arguments_json` is an object encoded as JSON text; invoke the operations
 below through that gateway, not native per-format calls.
 
-Request order is **frozen history → operation catalog → live document views →
-mutable working tail**, always after the system prompt. No compatible views means
+The catalog is a live view like the documents and is placed with them (README.md,
+"Cache points"), always after the system prompt. No compatible views means
 no catalog; it is generated afresh, not persisted as history. Lifecycle tools
-remain native. Runtime guards recheck id, format, permission and source version;
+remain native. A refused call says which reason applies: an unknown operation, one
+that is not enabled in the chat, or nothing open that it works on. Runtime guards recheck id, format, permission and source version;
 extra fields, malformed JSON and duplicate keys are refused. An unrelated open
 file cannot authorize a closed/incompatible target.
 

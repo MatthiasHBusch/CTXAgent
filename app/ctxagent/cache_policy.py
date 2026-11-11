@@ -2,17 +2,22 @@
 
 Anthropic caches only at the breakpoints a request sends (at most 4), and an entry lives 5
 minutes from the last request that read or wrote it. Each request marks the static system
-prompt, up to two "rungs" in the history (plan_rungs) and the tail. A change at message c
-(curate_context replaced an item, a live view changed) is re-written from the newest valid
-cache entry before c; the request after it marks the last unchanged message, so the next
-change behind that point costs only what follows it. Live views that appear or change go
+prompt, up to two "rungs" in the history (plan_rungs) and the tail. The near rung lies about
+50k tokens before the end of the history, the far rung halfway to it. A change at
+message c (curate_context replaced an item, a live view changed) is re-written from the
+newest rung before c; that request marks the last unchanged message as the near rung, so the
+next change behind that point costs only what follows it. Live views that appear or change go
 behind the previous request's end, and the message before them stays a rung while they are
 open: a view change re-writes the views and the history that came after them, not more.
+A view that is being worked on (restless_views) is not placed in the history at all: it is
+sent at the end, behind the tail mark, where a new version costs only itself.
 """
 from __future__ import annotations
 
+import bisect
 import copy
 import hashlib
+import itertools
 import json
 import re
 import time
@@ -70,34 +75,53 @@ def eligible_block(message: dict, images: bool = True) -> int | None:
 MAX_BREAKPOINTS = 4
 #: Rungs kept in the history: the 4 breakpoints are the system prompt, two rungs, the tail.
 MAX_RUNGS = 2
-#: A new rung (the previous request's tail) once the history behind the newest one has grown
-#: by this many local tokens: a change in the newer part then re-writes at most about this much.
-RUNG_SPACING_TOKENS = 20_000
+#: The near rung lies about this many provider tokens before the end of the history: a change
+#: in the newest part, which is what a curate usually replaces, re-writes about this much.
+#: In a history of less than twice as much it lies in the middle. The far rung lies halfway
+#: between the start and the near rung's place: a change further back re-writes the newer
+#: part and not everything. (Half of the whole history would be the near rung's own place
+#: at 100k and within 50k of it up to 200k.)
+NEAR_RUNG_TOKENS = 50_000
+#: A rung stays where it is while it is off its place by no more than this share, so that one
+#: cache entry serves many requests: the near rung up to (1 + NEAR_RUNG_SLACK) times its
+#: distance before the end, the far rung within FAR_RUNG_SLACK of its place.
+NEAR_RUNG_SLACK = 0.5
+FAR_RUNG_SLACK = 0.25
 #: A breakpoint looks back at most 20 positions for an older cache entry. A request that
 #: appends more messages than this keeps the previous tail as a rung, so its entry is found.
 LOOKBACK_GUARD = 12
 
 
 def plan_rungs(prior: dict | None, history_hashes: list[str], history_tokens: list[int],
-               views_hash: str, views_count: int = 0) -> dict:
+               views_hash: str, views_count: int = 0, before_step: int = 0, scale: float = 1.0) -> dict:
     """Rungs and the live-view position for the next request, as indices into the history
     messages (live views not counted). `prior` is the previous request's cache_state, None
-    when its cache cannot serve this one (model, tools or reasoning changed).
+    when its cache cannot serve this one (model, tools or reasoning changed). The views are
+    the ones placed in the history (the agent sends restless ones at the end instead).
+    `scale` is provider tokens per token of `history_tokens`.
 
-    A rung is
-      * the last unchanged message before a change (an item replaced, the views changed), so
-        the next change behind it re-writes only what follows, or
-      * the previous request's tail, once the history behind the newest rung has grown by
-        RUNG_SPACING_TOKENS, or when this request appends more than LOOKBACK_GUARD messages.
-    Every request marks its rungs, which keeps their entries warm; the newest MAX_RUNGS stay.
+    While nothing changed, the two rungs are placed by position:
+      * the near rung NEAR_RUNG_TOKENS before the end of the history, and not before its middle,
+      * the far rung halfway between the start and the near rung's place.
+    A breakpoint on a message writes an entry there at no extra cost, so a rung can be put
+    on any message; it serves from the next request on. A rung of the previous request
+    stays while it is within the slack of its place. A request that appends more than
+    LOOKBACK_GUARD messages has the previous request's tail as its near rung, so that
+    entry is found.
+
+    When something changed (an item replaced, the views changed), the request marks the
+    newest rung before the change, from which it reads, and the last unchanged message:
+    the next change behind it re-writes only what follows. That message then serves as the
+    near rung while it is within the slack.
 
     Live views stay where they are while they and the history before them are unchanged.
     When they appear, change, or a change before them makes their place invalid, they go
     behind the previous request's end (`history_tail`): this request writes everything
     behind the change anyway, and the next view change then re-writes only what came after.
-    While views are open the message before them is one of the rungs (the other is the
-    newest remaining one), so its entry is warm whenever they change. Views in a history
-    that shrank (a compaction) go behind the newest rung, as do views without a prior request.
+    While views are open the message before them is one of the rungs, in place of the one
+    nearest to it, so its entry is warm when they change. Where no previous
+    end is known (the history shrank in a compaction, or `prior` is None) they go before the
+    newest step: behind `before_step`, the message before the last assistant or user message.
 
     Returns {'rungs', 'views_at' (views go after this message), 'common' (unchanged leading
     history messages), 'edit_at' (last unchanged message before a change, or None)}."""
@@ -120,18 +144,37 @@ def plan_rungs(prior: dict | None, history_hashes: list[str], history_tokens: li
     def valid(h) -> bool:
         return isinstance(h, int) and 0 < h < limit
 
-    rungs = [h for h in prior.get('rungs') or [] if valid(h)]
-    edit_at = None
-    if previous and limit < len(previous) and limit >= 2:
-        edit_at = limit - 1
-        rungs.append(edit_at)
+    kept = sorted(h for h in prior.get('rungs') or [] if valid(h))
     tail = prior.get('history_tail')
-    if valid(tail):
-        newest = max(rungs, default=0)
-        grown = sum(history_tokens[newest + 1:tail + 1])
-        if grown >= RUNG_SPACING_TOKENS or len(history_hashes) - 1 - tail > LOOKBACK_GUARD:
-            rungs.append(tail)
-    rungs = sorted(set(rungs))
+    ends = list(itertools.accumulate(t * scale for t in history_tokens))   # tokens up to the end of each message
+    total = ends[-1] if ends else 0
+    edit_at = None
+    changed = bool(previous) and limit < len(previous)
+    if changed:
+        if limit >= 2:
+            edit_at = limit - 1
+        rungs = kept[-1:] + ([edit_at] if edit_at is not None else [])
+    else:
+        def at(tokens):
+            """The last message that ends within `tokens`; neither the system prompt nor the tail."""
+            i = bisect.bisect_right(ends, tokens) - 1
+            return i if 1 <= i < len(ends) - 1 else None
+
+        near_place = max(total - NEAR_RUNG_TOKENS, total / 2)
+        far_place = near_place / 2
+        if valid(tail) and len(history_hashes) - 1 - tail > LOOKBACK_GUARD:
+            near = tail
+        else:
+            reach = (total - near_place) * (1 + NEAR_RUNG_SLACK)
+            near = max((h for h in kept if total - ends[h] <= reach), default=None)
+            if near is None:
+                near = at(near_place)
+        far = min((h for h in kept if (near is None or h < near)
+                   and abs(ends[h] - far_place) <= FAR_RUNG_SLACK * far_place),
+                  key=lambda h: abs(ends[h] - far_place), default=None)
+        if far is None:
+            far = at(far_place)
+        rungs = [h for h in (far, near) if h is not None]
     keep_views = had_views and views_count > 0 and not views_changed and old_views < common
     if keep_views:
         views_at = old_views
@@ -139,13 +182,42 @@ def plan_rungs(prior: dict | None, history_hashes: list[str], history_tokens: li
             and len(history_hashes) >= len(previous):
         views_at = tail
     else:
-        views_at = max(rungs, default=0)
-    if views_count > 0 and views_at > 0:
-        others = [h for h in rungs if h != views_at]
-        rungs = sorted(others[len(others) - (MAX_RUNGS - 1):] + [views_at])
-    else:
-        rungs = rungs[-MAX_RUNGS:]
-    return {'rungs': rungs, 'views_at': views_at, 'common': common, 'edit_at': edit_at}
+        views_at = max(0, min(before_step, len(history_hashes) - 1))
+    rungs = sorted(set(rungs))
+    if views_count > 0 and views_at > 0 and views_at not in rungs:
+        if len(rungs) < MAX_RUNGS:
+            rungs.append(views_at)
+        elif not changed:   # a change request keeps the rung it reads from and the one before the change
+            nearest = min(rungs, key=lambda h: abs(ends[h] - ends[views_at]))
+            rungs = [h for h in rungs if h != nearest] + [views_at]
+    return {'rungs': sorted(rungs), 'views_at': views_at, 'common': common, 'edit_at': edit_at}
+
+
+#: A view that changes again within this many requests of its last change is restless, and
+#: stays so until it has been unchanged for as many.
+RESTLESS_WITHIN = 2
+
+
+def restless_views(prior: dict | None, hashes: dict[str, str]) -> tuple[dict[str, int], set[str]]:
+    """Which live views go to the end of the request instead of into the history.
+
+    A view placed in the history is read from the cache while it stays the same, but a new
+    version of it re-writes itself, the other views beside it and the history behind them.
+    At the end, behind the tail mark, it is never cached and a new version costs nothing
+    else. So a view that changes again within RESTLESS_WITHIN requests of its last change
+    (a document being edited, with or without a test run in between) is sent at the end
+    until it has been unchanged for RESTLESS_WITHIN requests.
+
+    `hashes` maps each view's key to the digest of its message; `prior` is the previous
+    request's cache_state. Returns (calm, restless): per key the number of requests in a row
+    without a change (0 = new or changed now), and the keys to send at the end."""
+    prior = prior or {}
+    known, before = prior.get('view_hashes') or {}, prior.get('views_calm') or {}
+    was = set(prior.get('views_restless') or [])
+    calm = {key: before.get(key, 0) + 1 if known.get(key) == h else 0 for key, h in hashes.items()}
+    restless = {key for key, n in calm.items() if n < RESTLESS_WITHIN and (
+        key in was or (n == 0 and before.get(key, RESTLESS_WITHIN) < RESTLESS_WITHIN))}
+    return calm, restless
 
 
 def apply(messages: list[dict], model: str, anchors=(), ttl: str = '5m',

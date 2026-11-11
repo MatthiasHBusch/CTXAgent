@@ -13,10 +13,10 @@ it, not to this folder.
 ## Download and install
 
 Installers are attached to the GitHub release
-[**app-v0.2.0**](https://github.com/MatthiasHBusch/CTXAgent/releases/tag/app-v0.2.0), together
+[**app-v0.2.1**](https://github.com/MatthiasHBusch/CTXAgent/releases/tag/app-v0.2.1), together
 with `SHA256SUMS.txt`.
 
-**Windows 10/11 (x64):** `CTXAgent-Setup-0.2.0.exe`
+**Windows 10/11 (x64):** `CTXAgent-Setup-0.2.1.exe`
 
 - Installs for the current user, no administrator rights needed
   (`%LOCALAPPDATA%\Programs\CTXAgent`, Start-menu entry, optional desktop icon). Uninstall in
@@ -26,11 +26,11 @@ with `SHA256SUMS.txt`.
   in your web browser instead.
 
 **Linux (x86_64, glibc 2.35+: Ubuntu 22.04, Debian 12, Fedora 36, Mint 21 or newer):**
-`CTXAgent-0.2.0-linux-x86_64.tar.gz`
+`CTXAgent-0.2.1-linux-x86_64.tar.gz`
 
 ```bash
-tar xzf CTXAgent-0.2.0-linux-x86_64.tar.gz
-cd CTXAgent-0.2.0-linux-x86_64
+tar xzf CTXAgent-0.2.1-linux-x86_64.tar.gz
+cd CTXAgent-0.2.1-linux-x86_64
 ./install.sh                  # no root; add --desktop-icon for a launcher on the desktop
 ```
 
@@ -40,7 +40,7 @@ Start CTXAgent from the app menu or run `ctxagent`. The window needs NSS
 [`packaging/linux/README.txt`](packaging/linux/README.txt) has the details and the uninstaller.
 
 Check a download: `sha256sum -c SHA256SUMS.txt --ignore-missing` (Linux) or
-`Get-FileHash CTXAgent-Setup-0.2.0.exe` (PowerShell) against `SHA256SUMS.txt`.
+`Get-FileHash CTXAgent-Setup-0.2.1.exe` (PowerShell) against `SHA256SUMS.txt`.
 
 ## First steps
 

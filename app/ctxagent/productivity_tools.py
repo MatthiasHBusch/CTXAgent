@@ -22,6 +22,10 @@ def register(registry, ToolSpec, ToolResult, ToolError, params):
             if not ctx or not ctx.get('session'):
                 raise ToolError('canvas=true requires a chat session')
             from .canvas import CanvasError, OPERATIONS
+            # Without the canvas tools nothing could draw on it or close it again.
+            if 'canvas_close' not in ctx['session'].tool_names():
+                raise ToolError('canvas=true needs the canvas tools, which are not enabled in this chat. '
+                                'Nothing was opened; without canvas the image is shown to you alone.')
             try:
                 desc = await asyncio.to_thread(ctx['session'].conv.canvas.open_file, p)
             except CanvasError as exc:

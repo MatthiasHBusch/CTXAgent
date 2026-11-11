@@ -186,10 +186,11 @@ class BatchingTests(unittest.IsolatedAsyncioTestCase):
                 yield {'type': 'done', 'finish_reason': 'stop'}
             with patch('ctxagent.agent.llm.stream_chat', stream):
                 _ = [e async for e in s.run_turn('')]
-            # A new chat has no rung yet: the views go right behind the system prompt and stay
-            # there while they do not change (cache_policy.plan_rungs).
-            self.assertIn('DOCUMENT OPERATION CATALOG', seen[0][1]['content'])
-            self.assertIn('LIVE DOCUMENT WORKSPACE', seen[0][2]['content'])
+            # No previous request: the views go in front of the newest step (here the user
+            # message) and stay there while they do not change (cache_policy.plan_rungs).
+            self.assertIn('DOCUMENT OPERATION CATALOG', seen[0][2]['content'])
+            self.assertIn('LIVE DOCUMENT WORKSPACE', seen[0][3]['content'])
+            self.assertEqual(seen[0][4]['content'], 'working-tail task')
             self.assertEqual(seen[0], seen[1][:len(seen[0])])
             self.assertEqual(seen[0][:1], c.to_messages()[:1])
             self.assertEqual([r['tool_calls'] for r in s.usage['recent_requests']], [1, 0])

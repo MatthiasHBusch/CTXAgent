@@ -83,9 +83,10 @@ class CatalogTests(unittest.IsolatedAsyncioTestCase):
             async for event in self.s.run_turn(''):
                 pass
         actual = captured[0]['messages']
-        # The chat's first request has no cache rung yet: the views go behind the system prompt.
-        self.assertIn('CATALOG', actual[1]['content'])
-        self.assertIn('LIVE DOCUMENT', actual[2]['content'])
+        # The chat's first request: the views go in front of the newest step, the last user message.
+        self.assertIn('CATALOG', actual[-3]['content'])
+        self.assertIn('LIVE DOCUMENT', actual[-2]['content'])
+        self.assertEqual(actual[-1]['content'], 'working question')
         self.assertEqual(before[:1], actual[:1])
 
     async def test_dispatcher_validates_permissions_json_schema_and_closed_targets(self):
@@ -102,13 +103,18 @@ class CatalogTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(json.loads(p.read_text()), {'n': 1})
         await self.success('document_apply_edits', plan_id=data['plan_id'])
         self.assertEqual(json.loads(p.read_text()), {'n': 2})
+        result = await self.call('document_nope', **valid)
+        self.assertIn('Unknown operation', result.text)             # a refusal says why
+        self.assertIn('document_json_update', result.text)          # and what there is
         self.s.cfg.enabled_tools.remove('document_json_update')
         result = await self.call('document_json_update', **valid)
         self.assertTrue(result.error)
+        self.assertIn('not enabled in this chat', result.text)
         self.s.conv.workspace.close(doc)
         self.assertEqual(catalog.messages(self.s), [])
         result = await self.call('document_apply_edits', plan_id=data['plan_id'])
         self.assertTrue(result.error)
+        self.assertIn('no open document', result.text)
 
     def pdf_bytes(self):
         import fitz

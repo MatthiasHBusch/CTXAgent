@@ -152,6 +152,7 @@ def _text(img, draw, op, ctx):
     left = x - (width / 2 if align == "center" else width if align == "right" else 0)
     pad = _num(op.get("padding", 6), "padding", 0, 200)
     fill, border = color(op.get("background")), color(op.get("border"))
+    box = (left, y, left + width, y + height)
     if fill or border:
         box = (left - pad, y - pad, left + width + pad, y + height + pad)
         layer = ctx["layer"](fill, border)
@@ -166,7 +167,7 @@ def _text(img, draw, op, ctx):
                   draw.textlength(line, font=fnt) if align == "right" else 0)
         layer[1].text((lx, y + i * line_h), line, font=fnt, fill=ink)
     ctx["flush"](layer)
-    return f"text {text[:30]!r}"
+    return f"text {text[:30]!r}", [math.floor(box[0]), math.floor(box[1]), math.ceil(box[2]), math.ceil(box[3])]
 
 
 def _arrow(layer, op):
@@ -183,8 +184,10 @@ def _arrow(layer, op):
     layer[1].polygon(wing, fill=ink)
 
 
-def apply_ops(img, ops, background, sandbox=None):
-    """Draw `ops` on `img` (RGBA, changed in place). Returns a one-line summary."""
+def apply_ops(img, ops, background, sandbox=None, boxes=None):
+    """Draw `ops` on `img` (RGBA, changed in place). Returns a one-line summary. `boxes`
+    (a list) receives {'op': index, 'box': [x0, y0, x1, y1]} for every text: the area its
+    lines took, with the padding when it has a background or border."""
     from PIL import Image, ImageDraw, ImageOps
     if not isinstance(ops, list) or not ops:
         raise CanvasError("ops must be a non-empty list")
@@ -255,7 +258,10 @@ def apply_ops(img, ops, background, sandbox=None):
                 else:
                     raise CanvasError("marker shape must be dot, cross or x")
             elif kind == "text":
-                done.append(_text(img, ImageDraw.Draw(img), op, ctx))
+                summary, box = _text(img, ImageDraw.Draw(img), op, ctx)
+                done.append(summary)
+                if boxes is not None:
+                    boxes.append({"op": index, "box": box})
                 continue
             elif kind == "erase":
                 ImageDraw.Draw(img).rectangle(_box(op.get("box")), fill=background)
@@ -438,10 +444,10 @@ class Canvas:
         self._changed()
 
     # -- operations ----------------------------------------------------------
-    def draw(self, ops, label: str = "", sandbox=None) -> dict:
+    def draw(self, ops, label: str = "", sandbox=None, boxes=None) -> dict:
         self.require()
         img = self.image()
-        summary = apply_ops(img, ops, color(self.background, (255, 255, 255, 255)), sandbox)
+        summary = apply_ops(img, ops, color(self.background, (255, 255, 255, 255)), sandbox, boxes)
         return self.commit(img, label or summary, summary)
 
     def run_script(self, code: str, label: str = "", timeout: int = 60) -> tuple[dict, str]:

@@ -46,6 +46,7 @@ if _conda_bin.is_dir():
 hiddenimports = (
     collect_submodules("ctxagent")          # workers run by name (--run-module)
     + collect_submodules("uvicorn")         # protocols/loops are imported by string
+    + collect_submodules("anthropic")       # imported inside functions, parts only when a request runs
     + ["tiktoken_ext", "tiktoken_ext.openai_public"]
 )
 

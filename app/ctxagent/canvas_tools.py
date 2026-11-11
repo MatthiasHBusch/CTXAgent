@@ -33,13 +33,14 @@ def register(registry, ToolSpec, ToolResult, ToolError, params):
             raise ToolError('This tool requires a chat session')
         return ctx['session'].conv.canvas
 
-    def receipt(canvas, desc, note, **extra):
+    def receipt(desc, note='', **extra):
         data = {'version': desc['version'], 'label': desc['label'], 'size': [desc['width'], desc['height']],
-                **extra, 'note': note}
+                **extra, **({'note': note} if note else {})}
         return ToolResult(text=json.dumps(data, ensure_ascii=False))
 
-    SHOWN = ('Shown to the user in the Canvas panel. The current version is the image at the end of each '
-             'of your requests from now on; a single image, not one per version.')
+    # Said once, when the canvas opens; the receipts of the operations stay short.
+    OPENED = ('Shown to the user in the Canvas panel. The current version is the image at the end of each '
+              'of your requests from now on; a single image, not one per version.')
 
     async def run(fn, *args, **kw):
         try:
@@ -55,7 +56,7 @@ def register(registry, ToolSpec, ToolResult, ToolError, params):
             desc = await run(canvas.open_file, p, label)
         else:
             desc = await run(canvas.open_blank, width, height, background, label)
-        return receipt(canvas, desc, SHOWN + (' The previous canvas and its versions were closed.' if replaced else ''),
+        return receipt(desc, OPENED + (' The previous canvas and its versions were closed.' if replaced else ''),
                        operations=list(OPERATIONS))
 
     async def canvas_close(sb, ctx=None):
@@ -67,13 +68,14 @@ def register(registry, ToolSpec, ToolResult, ToolError, params):
 
     async def canvas_draw(sb, ops, label='', ctx=None):
         canvas = canvas_of(ctx)
-        desc = await run(canvas.draw, ops, label, sb if sb.roots else None)
-        return receipt(canvas, desc, SHOWN, drew=desc['summary'])
+        boxes: list = []
+        desc = await run(canvas.draw, ops, label, sb if sb.roots else None, boxes)
+        return receipt(desc, drew=desc['summary'], **({'text_boxes': boxes} if boxes else {}))
 
     async def canvas_script(sb, code, label='', timeout=60, ctx=None):
         canvas = canvas_of(ctx)
         desc, output = await run(canvas.run_script, code, label, timeout)
-        return receipt(canvas, desc, SHOWN, **({'stdout': output} if output.strip() else {}))
+        return receipt(desc, **({'stdout': output} if output.strip() else {}))
 
     async def canvas_focus(sb, box=None, rulers=None, ctx=None):
         canvas = canvas_of(ctx)
@@ -85,8 +87,7 @@ def register(registry, ToolSpec, ToolResult, ToolError, params):
     async def canvas_undo(sb, steps=1, to_version=None, ctx=None):
         canvas = canvas_of(ctx)
         desc = await run(canvas.undo, steps, to_version)
-        return receipt(canvas, desc, 'Back at this version; later versions stay available through to_version. '
-                       + SHOWN.split('. ')[0] + '.')
+        return receipt(desc, 'Back at this version; later versions stay available through to_version.')
 
     async def canvas_save(sb, path, format=None, ctx=None):
         canvas = canvas_of(ctx)
@@ -115,7 +116,8 @@ def register(registry, ToolSpec, ToolResult, ToolError, params):
             'circle center radius fill outline; polygon points fill outline; marker at size shape(dot|cross|x) '
             'color; text at (top-left, or the anchor x with align) text size color align max_width(wraps) '
             'background border padding; erase box (back to the background); paste path(image file) box '
-            '(fitted inside). Colours with alpha (#rrggbbaa) blend.',
+            '(fitted inside). Colours with alpha (#rrggbbaa) blend. The result gives the box each text '
+            'took (text_boxes, by op index).',
             params({'ops': {'type': 'array', 'items': _OP, 'minItems': 1, 'maxItems': 300},
                     'label': {'type': 'string', 'description': 'Name of this step in the version history.'}},
                    ['ops']),

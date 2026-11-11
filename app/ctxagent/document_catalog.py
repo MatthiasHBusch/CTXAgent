@@ -81,10 +81,26 @@ def token_count(session):
     return tokens.count_messages(found) if found else 0
 
 
+def refusal(session, operation) -> str:
+    """Why `operation` cannot run now: unknown, switched off for the chat, or nothing open
+    that it works on."""
+    if operation not in LATE_BOUND:
+        names = operation_names(session)
+        return (f'Unknown operation {operation!r}. '
+                + ('Available now: ' + ', '.join(names) + '.' if names else
+                   'No operation is available: no document or canvas is open.'))
+    if operation not in session.tool_names(live_only=False):
+        return f'{operation} is not enabled in this chat (tool settings).'
+    if operation in _canvas_operations():
+        return f'{operation} needs an open canvas; canvas_open or view_image(canvas=true) opens one.'
+    return (f'{operation} has no open document it works on: the document is not open (document_open), '
+            'not ready, or of another type.')
+
+
 def decode(session, operation, arguments_json):
     from jsonschema import Draft202012Validator
     if operation not in operation_names(session):
-        raise ValueError('Document operation is not enabled or has no compatible ready open document.')
+        raise ValueError(refusal(session, operation))
     if not isinstance(arguments_json, str) or len(arguments_json) > 200000:
         raise ValueError('arguments_json must be JSON text of at most 200000 characters.')
     args = json.loads(arguments_json, object_pairs_hook=document_edits._unique_object,

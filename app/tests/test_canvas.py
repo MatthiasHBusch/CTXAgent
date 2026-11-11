@@ -227,6 +227,47 @@ class AgentTests(Base):
         self.assertFalse(r.images)
         self.assertEqual(s.conv.canvas.current()['width'], 120)
 
+    async def test_view_image_on_the_canvas_needs_the_canvas_tools(self):
+        s = self.session()
+        Image.new('RGB', (120, 90), (10, 20, 30)).save(self.root / 'work' / 'photo.png')
+        s.cfg.enabled_tools = [n for n in s.cfg.enabled_tools if not n.startswith('canvas_')]
+        r = await s._exec_tool('view_image', {'path': 'photo.png', 'canvas': True})
+        self.assertTrue(r.error)
+        self.assertIn('not enabled in this chat', r.text)
+        self.assertFalse(s.conv.canvas.is_open)                  # nothing the agent could not close again
+
+    async def test_draw_reports_text_boxes_and_only_the_opening_explains_the_canvas(self):
+        s = self.session()
+        r = await s._exec_tool('canvas_open', {'width': 400, 'height': 200})
+        self.assertIn('Canvas panel', json.loads(r.text)['note'])
+        r = await s._exec_tool('document_call', {'operation': 'canvas_draw', 'arguments_json': json.dumps({'ops': [
+            {'type': 'rect', 'box': [0, 0, 50, 50]},
+            {'type': 'text', 'at': [100, 40], 'text': 'label', 'size': 20},
+            {'type': 'text', 'at': [200, 100], 'text': 'boxed', 'size': 20, 'align': 'center',
+             'background': 'white', 'padding': 5}]})})
+        self.assertFalse(r.error, r.text)
+        data = json.loads(r.text)
+        self.assertNotIn('note', data)
+        plain, boxed = data['text_boxes']
+        self.assertEqual((plain['op'], plain['box'][:2], plain['box'][3]), (1, [100, 40], 65))   # a line: 1.25 x size
+        self.assertGreater(plain['box'][2], 120)
+        x0, y0, x1, y1 = boxed['box']
+        self.assertEqual((boxed['op'], y0, y1), (2, 95, 130))    # the padding counts
+        self.assertAlmostEqual((x0 + x1) / 2, 200, delta=1)      # centred on the anchor
+        r = await s._exec_tool('document_call', {'operation': 'canvas_draw', 'arguments_json': json.dumps(
+            {'ops': [{'type': 'marker', 'at': [5, 5]}]})})
+        self.assertNotIn('text_boxes', json.loads(r.text))
+
+    async def test_a_refused_operation_says_why(self):
+        s = self.session()
+        draw = {'operation': 'canvas_draw', 'arguments_json': json.dumps({'ops': [{'type': 'marker', 'at': [5, 5]}]})}
+        r = await s._exec_tool('document_call', draw)
+        self.assertIn('needs an open canvas', r.text)
+        await s._exec_tool('canvas_open', {'width': 100, 'height': 100})
+        s.cfg.enabled_tools.remove('canvas_draw')
+        r = await s._exec_tool('document_call', draw)
+        self.assertIn('canvas_draw is not enabled in this chat', r.text)
+
     async def test_canvas_goes_last_behind_the_tail_mark_and_the_ui_hears_of_changes(self):
         s = self.session()
         s.cfg.model = 'anthropic/claude-opus-5.5'
