@@ -33,12 +33,14 @@ def register(registry, ToolSpec, ToolResult, params):
                  latex_build, 'latex', dangerous=True, needs_ctx=True),
         ToolSpec('latex_diagnostics', 'Errors, warnings and layout messages parsed from a TeX log.',
                  params({'path': {'type': 'string'}, 'max_entries': {'type': 'integer'}}, ['path']), latex_diagnostics, 'latex'),
-        ToolSpec('prepare_edit_plan', 'Prepare exact-string edits across up to 30 files as one plan and return its unified diff; nothing is written until apply_edit_plan. BOM and CRLF are preserved.',
+        ToolSpec('prepare_edit_plan', 'Prepare edits across up to 30 files as one plan and return its unified diff; nothing is written until apply_edit_plan. An edit is an exact string (old_string, new_string) or a line range (start_line, end_line, new_text, with start_text and end_text as the exact text of the range\'s first and last line, which must match). Line numbers refer to the file as it is now, for every range of the plan. BOM and CRLF are preserved.',
                  params({'changes': {'type': 'array', 'minItems': 1, 'maxItems': 30, 'items': {
                      'type': 'object', 'properties': {'path': {'type': 'string'}, 'expected_sha256': {'type': 'string'},
                      'edits': {'type': 'array', 'items': {'type': 'object', 'properties': {
-                         'old_string': {'type': 'string'}, 'new_string': {'type': 'string'}, 'replace_all': {'type': 'boolean'}},
-                         'required': ['old_string','new_string']}}}, 'required': ['path','edits']}}}, ['changes']),
+                         'old_string': {'type': 'string'}, 'new_string': {'type': 'string'}, 'replace_all': {'type': 'boolean'},
+                         'start_line': {'type': 'integer'}, 'end_line': {'type': 'integer'},
+                         'start_text': {'type': 'string'}, 'end_text': {'type': 'string'}, 'new_text': {'type': 'string'}}}}},
+                     'required': ['path','edits']}}}, ['changes']),
                  prepare_edit_plan, 'editing', needs_ctx=True),
         ToolSpec('apply_edit_plan', 'Write a prepared plan if the files are unchanged since it was prepared. Files are replaced one by one with backups, not as one transaction; rollback=true restores the backups.',
                  params({'plan_id': {'type': 'string'}, 'rollback': {'type': 'boolean'}}, ['plan_id']),

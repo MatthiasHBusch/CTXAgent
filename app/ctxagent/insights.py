@@ -44,7 +44,7 @@ _PREF_TTL = 2.0
 
 #: Tool name -> category. Names not listed fall back by prefix (category()).
 CATEGORIES: dict[str, tuple[str, ...]] = {
-    "edit": ("write_file", "edit_file", "prepare_edit_plan", "apply_edit_plan", "document_prepare_edits",
+    "edit": ("write_file", "edit_file", "edit_lines", "prepare_edit_plan", "apply_edit_plan", "document_prepare_edits",
              "document_apply_edits", "document_json_update", "document_table_update", "document_docx_replace",
              "document_xlsx_update", "document_obj_transform"),
     "inspect": ("read_file", "list_dir", "focus_file", "summarize_file", "summarize_folder", "read_document",
@@ -52,8 +52,8 @@ CATEGORIES: dict[str, tuple[str, ...]] = {
                 "document_pdf_inspect", "document_pdf_text", "document_pdf_render", "document_docx_inspect",
                 "document_xlsx_inspect", "document_mesh_inspect", "latex_inspect", "latex_diagnostics",
                 "environment_report"),
-    "search": ("glob_search", "grep_search"),
-    "shell": ("run_command", "start_job", "job_status", "job_wait", "list_jobs", "read_job_log", "cancel_job",
+    "search": ("glob_search", "grep_search", "smart_search"),
+    "shell": ("run_command", "run_script", "start_job", "job_status", "job_wait", "list_jobs", "read_job_log", "cancel_job",
               "latex_build"),
     "context": ("recall", "pin", "compact_context", "curate_context", "context_report"),
     "collaboration": ("scratchpad_read", "scratchpad_write"),

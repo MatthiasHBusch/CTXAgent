@@ -1,4 +1,4 @@
-"""Bounded read-only concurrency; every other tool is an ordering barrier.
+"""Bounded concurrency for reads and for run_script; every other tool is an ordering barrier.
 
 A multi-call model response already costs one model request. Concurrency saves
 wall time, NOT additional cache billing by itself. Batch planning saves requests.
@@ -21,6 +21,18 @@ def is_parallel_read(name, args):
         return args.get('operation') in scoped_reads
     return name in READ_ONLY or (name == 'summarize_file' and
         str(args.get('mode', 'static')).strip().lower() in ('static', 'outline', 'structure'))
+
+
+#: Calls of one kind that may overlap: reads with reads, scripts with scripts. A script can
+#: change what a read sees, so the two kinds do not share a group.
+PARALLEL_SCRIPTS = frozenset({'run_script'})
+
+
+def parallel_kind(name, args):
+    """'read', 'script' or None (an ordering barrier)."""
+    if is_parallel_read(name, args):
+        return 'read'
+    return 'script' if name in PARALLEL_SCRIPTS else None
 
 
 def parse_call(tc, cut_off_at=None):
@@ -88,10 +100,11 @@ async def execute_batch(session, calls, finish_reason=None):
         while i < len(calls):
             group = [calls[i]]
             name, args, invalid = parse(calls[i])
-            if is_parallel_read(name, args) and invalid is None:
+            kind = parallel_kind(name, args) if invalid is None else None
+            if kind:
                 while i + len(group) < len(calls) and len(group) < MAX_PARALLEL_READS:
                     n, a, bad = parse(calls[i + len(group)])
-                    if bad is not None or not is_parallel_read(n, a):
+                    if bad is not None or parallel_kind(n, a) != kind:
                         break
                     group.append(calls[i + len(group)])
             parsed = [parse(tc) for tc in group]

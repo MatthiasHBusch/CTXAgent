@@ -43,7 +43,8 @@ MODULES = (
     'tests.test_token_calibration',
     'tests.test_new_chat_defaults',
     'tests.test_curate_refs', 'tests.test_cache_rungs', 'tests.test_compact_until', 'tests.test_review_hint',
-    'tests.test_keepalive',
+    'tests.test_keepalive', 'tests.test_cache_timer',
+    'tests.test_smart_search', 'tests.test_plan_and_script', 'tests.test_edit_lines',
 )
 
 

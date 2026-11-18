@@ -109,8 +109,10 @@ class GuidancePromptTests(unittest.TestCase):
         self.assertNotEqual(live, default)
         self.assertTrue(live.startswith(default.split(agentmod.MANAGE_MARKER)[0]))
         # A few lines at most (the default explains the curate references since 2026-11-10 and
-        # says to close live views together with a curate since 2026-11-11).
-        self.assertLess(abs(tokens.count(live) - tokens.count(default)), 200)
+        # says to close live views together with a curate since 2026-11-11, and names the two
+        # review points of the standard minimal workflow since 2026-11-18).
+        self.assertLess(abs(tokens.count(live) - tokens.count(default)), 300)
+        self.assertIn('two points where a context review makes sense', default)
         self.assertIn('Facts the user stated', live)
         self.assertEqual(set(agentmod.GUIDANCE_SECTIONS) | {'default'}, set(GUIDANCE))
         # engine off: the context sections go, whatever the variant

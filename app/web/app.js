@@ -185,6 +185,16 @@ function addAssistant() {
   return { node: d, bubble: b, raw: '' };
 }
 
+// The plan tool: its text is for the user, so it is shown as a message, not as a tool card.
+function addPlan(text) {
+  clearEmpty();
+  const d = el('div', 'msg assistant plan');
+  d.appendChild(el('div', 'role', 'Plan'));
+  const b = el('div', 'bubble'); b.innerHTML = md(String(text || '')); d.appendChild(b);
+  activityViews.delete(wrapEl());
+  wrapEl().appendChild(d); scrollDown(true);
+}
+
 function addSummary(text) {
   const d = el('div', 'msg summary');
   d.appendChild(el('div', 'role', '⎘ compacted history'));
@@ -439,6 +449,7 @@ async function openChat(id) {
   resetBrowser();
   $('#doc-list').replaceChildren(); $('#doc-status').textContent = '';
   renderCanvas(null);
+  setCacheClock(id, null);
   clearTimeout(agentRefreshTimer); $('#agent-list').replaceChildren(); $('#agent-status').textContent = ''; S.delegated = false;
   $('#doc-path').value = ''; $('#doc-select').value = '';
   $('#modalhost').replaceChildren();
@@ -477,7 +488,7 @@ async function openChat(id) {
     }
     $('#empty')?.remove();
     fillSettings(); fillCompaction(); renderTools(); renderWorkdirs(); showConfigPending(!!data.config_pending);
-    applyStats(data.stats); S.usage = data.usage; applyUsage();
+    applyStats(data.stats); S.usage = data.usage; applyUsage(); setCacheClock(id, data.cache);
     if (!view.children.length) renderEmptyChat();
     setSendState(); scrollDown(true); $('#input').focus();
     // Contract for settings.js and other listeners: the current chat and its config.
@@ -577,6 +588,7 @@ function addMedia(segment) {
 function renderSegments(segs) {
   let pendingCards = new Map();
   const allCards = [];
+  const planCalls = new Set();   // plan calls are shown as messages; their empty results are skipped
   for (const s of segs) {
     if (s.kind === 'system') {
       addNotice(`<b>System instructions</b><div>${md(s.body || '')}</div>`, 'system-prompt'); continue;
@@ -596,12 +608,14 @@ function renderSegments(segs) {
       }
       for (const tc of s.tool_calls || []) {
         let args = {}; try { args = JSON.parse(tc.function.arguments || '{}'); } catch (_) {}
+        if (tc.function.name === 'plan' && args.plan) { addPlan(args.plan); planCalls.add(tc.id); continue; }
         const card = addToolCard(tc.function.name, args);
         pendingCards.set(tc.id, card); allCards.push(card);
       }
       continue;
     }
     if (s.kind === 'tool_result') {
+      if (planCalls.has(s.tool_call_id) && !(s.body || '').trim()) continue;
       const card = pendingCards.get(s.tool_call_id);
       if (card) {
         card.body.textContent = s.body;
@@ -766,6 +780,86 @@ async function sendScratchpad() {
   send(undefined, { scratchpad: true });
 }
 
+/* ---------------------------------------------------------- cache timer */
+// The provider's prompt cache lives 5 minutes from the chat's last request. The chip beside
+// Send counts down to its end (AgentSession.cache_clock). A click queues a refresh: the
+// server re-sends the last request without output 30 s before the end, which keeps the cache
+// 4:30 longer. Several can be queued; right-click or Shift+click takes one back.
+const cacheClock = { chat: null, data: null, skew: 0, pollAt: Infinity, busy: false };
+const serverNow = () => Date.now() / 1000 - cacheClock.skew;
+const fmtClock = s => { s = Math.max(0, Math.round(s)); return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`; };
+
+function setCacheClock(id, data) {
+  if (id !== S.chatId) return;
+  cacheClock.chat = id; cacheClock.data = data && data.warm_at ? data : null;
+  if (data?.now) cacheClock.skew = Date.now() / 1000 - data.now;
+  const c = cacheClock.data;
+  // Asked again when a queued refresh is due, and while a turn runs: its keep-alives, and
+  // the requests of a turn another tab streams, restart the timer without an event here.
+  cacheClock.pollAt = !c ? Infinity
+    : c.queued > 0 ? Math.max(serverNow() + 5, c.warm_at + c.step + 3)
+    : (S.runs.has(id) || S.remote.has(id)) ? serverNow() + 15 : Infinity;
+  renderCacheClock();
+}
+
+// A request of the running turn goes out: the timer starts again. The usage event brings
+// the exact time.
+function cacheRequestStarted(id) {
+  if (id !== S.chatId || !cacheClock.data) return;
+  cacheClock.data.warm_at = serverNow();
+  cacheClock.pollAt = serverNow() + 15;
+  renderCacheClock();
+}
+
+function renderCacheClock() {
+  const b = $('#btn-cache'); if (!b) return;
+  const c = cacheClock.chat === S.chatId ? cacheClock.data : null;
+  b.hidden = !c || S.delegated;
+  if (b.hidden) return;
+  const now = serverNow(), left = c.warm_at + c.ttl + c.queued * c.step - now, expired = left <= 0;
+  const label = expired ? 'expired' : fmtClock(left) + (c.queued ? ` \u21bb${c.queued}` : '');
+  const text = $('#cache-left'); if (text.textContent !== label) text.textContent = label;
+  b.classList.toggle('warn', !expired && left <= 60);
+  b.classList.toggle('expired', expired);
+  b.disabled = expired || !c.refreshable;
+  const title = expired ? 'The prompt cache has expired: the next request writes the whole prompt again.'
+    : `The prompt cache expires in ${fmtClock(left)}`
+      + (c.queued ? ` (${c.queued} refresh${c.queued > 1 ? 'es' : ''} queued, the next in ${fmtClock(c.warm_at + c.step - now)})` : '') + '. '
+      + (c.refreshable
+        ? `Click: keep it ${fmtClock(c.step)} longer, for one cache read of the prompt${c.queued >= c.max ? ` (at most ${c.max} queued)` : ''}. Right-click: take a queued refresh back.`
+        : (c.why_not || 'It cannot be refreshed.'))
+      + (c.note ? ` Last refresh: ${c.note}` : '');
+  if (b.title !== title) b.title = title;
+}
+
+function tickCacheClock() {
+  renderCacheClock();
+  if (cacheClock.data && cacheClock.chat === S.chatId && serverNow() >= cacheClock.pollAt) pollCacheClock();
+}
+
+async function pollCacheClock() {
+  const id = S.chatId;
+  if (!id || cacheClock.busy) return;
+  cacheClock.busy = true;
+  try {
+    const before = cacheClock.data?.warm_at;
+    const d = await api(`/api/chats/${id}/cache`);
+    if (S.chatId !== id) return;
+    setCacheClock(id, d);
+    // A refresh sent meanwhile was billed: the usage panel shows it.
+    if (d.usage && d.warm_at !== before && !S.runs.has(id)) { S.usage = d.usage; applyUsage(); }
+  } catch (_) { cacheClock.pollAt = serverNow() + 30; }
+  finally { cacheClock.busy = false; }
+}
+
+async function queueCacheRefresh(delta) {
+  const id = S.chatId;
+  if (!id || !cacheClock.data || S.delegated) return;
+  if (delta < 0 && !cacheClock.data.queued) return;
+  try { setCacheClock(id, await api(`/api/chats/${id}/cache/refresh`, { method: 'POST', body: { delta } })); }
+  catch (error) { toast(errorText(error), 'err'); pollCacheClock(); }
+}
+
 // After a turn: what it handed back. A normal end sends it as the next message; after
 // Stop or an error it goes back into the message box.
 function afterRun(id, returned) {
@@ -801,7 +895,7 @@ async function send(override, { scratchpad = false } = {}) {
   try {
     await sse(`/api/chats/${id}/send`, scratchpad ? { scratchpad: true } : { message: text }, ev => inChat(id, () => {
       switch (ev.type) {
-        case 'assistant_start': cur = null; break;
+        case 'assistant_start': cur = null; cacheRequestStarted(id); break;
         case 'user_message':
           if (ev.queued_id) S.queued.set(id, queueFor(id).filter(q => q.id !== ev.queued_id));
           if (S.chatId === id) renderQueue();
@@ -825,6 +919,7 @@ async function send(override, { scratchpad = false } = {}) {
           break;
         case 'tool_start': {
           cur = null; // assistant text stays visible; commands start a new activity block
+          if (ev.name === 'plan' && ev.args && ev.args.plan) { addPlan(ev.args.plan); break; }
           cards.set(ev.id, addToolCard(ev.name, ev.args));
           break;
         }
@@ -832,6 +927,7 @@ async function send(override, { scratchpad = false } = {}) {
           if (ev.name?.startsWith('agent_') && S.chatId === id) refreshAgents(id);
           if (ev.name === 'scratchpad_write' && ev.ok) refreshScratchpad(id);
           const c = cards.get(ev.id);
+          if (!c && ev.name === 'plan' && !ev.ok) addNotice(`<b>plan</b> ${esc(ev.segment.body || '')}`, 'err');
           if (c) {
             c.body.textContent = ev.segment.body;
             finishToolCard(c, `${ev.ms} ms · ${fmt(ev.tokens)} tok`);
@@ -842,7 +938,7 @@ async function send(override, { scratchpad = false } = {}) {
         case 'compaction': compactionNotice(ev.report); break;
         case 'stats': if (S.chatId === id) applyStats(ev.stats); break;
         case 'routing': addNotice(esc(ev.routing_notice || 'Service tier routing updated'), 'routing'); break;
-        case 'usage': if (S.chatId === id) { S.usage = ev.usage; applyUsage(); } break;
+        case 'usage': if (S.chatId === id) { S.usage = ev.usage; applyUsage(); if (ev.cache) setCacheClock(id, ev.cache); } break;
         case 'error': addNotice(`<b>Error</b> ${esc(ev.error)}`, 'err'); break;
         case 'cancelled': addNotice('<b>Stopped</b>'); break;
         case 'notice': addNotice(esc(ev.text || ''), 'routing'); break;
@@ -2343,6 +2439,9 @@ async function init() {
   // wiring
   $('#btn-new').onclick = newChat;
   $('#btn-send').onclick = () => send();
+  $('#btn-cache').onclick = e => queueCacheRefresh(e.shiftKey ? -1 : 1);
+  $('#btn-cache').oncontextmenu = e => { e.preventDefault(); queueCacheRefresh(-1); };
+  setInterval(tickCacheClock, 1000);
   $('#btn-compact').onclick = forceCompact;
   $('#btn-doc-open').onclick = openDocument;
   $('#btn-doc-refresh').onclick = () => refreshDocuments();

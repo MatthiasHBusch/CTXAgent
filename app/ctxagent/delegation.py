@@ -336,7 +336,7 @@ def active_chat(chat_id):
 
 
 READ_ONLY_TOOLS = frozenset({'read_file','list_dir','glob_search','grep_search','read_document',
- 'summarize_file','summarize_folder','focus_file','view_image','render_pdf','recall',
+ 'summarize_file','summarize_folder','focus_file','smart_search','view_image','render_pdf','recall',
  'context_report','document_open','document_close','document_list','job_status','list_jobs',
  'read_job_log','environment_report','latex_inspect','scholarly_search','doi_lookup',
  'agent_start','agent_status','agent_result','agent_wait','agent_list','agent_cancel','agent_send',

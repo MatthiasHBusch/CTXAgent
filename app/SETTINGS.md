@@ -85,6 +85,21 @@ in the insights report, apart from the model requests. A 1-hour cache TTL was co
 on a long game-project session it would have cost $15.72 more (every write at 2x input instead of 1.25x),
 keep-alives $21.49 less.
 
+### Cache timer
+
+Beside the send button a chip counts down to the end of the prompt cache: 5 minutes after the
+chat's last request or keep-alive (Claude models; other models show none). In its last minute it
+turns yellow; after that it reads "expired", and the next request writes the whole prompt again.
+A click queues a refresh: the app sends a keep-alive 30 seconds before the cache would expire,
+which moves the end 4:30 later. Each further click queues one more (the chip shows the number;
+at most 13, about an hour); right-click or Shift+click takes one back. The queue is only used
+while the cache would otherwise expire: the requests of a running turn restart the timer and
+leave the queue alone, so refreshes queued during a turn apply after it. A refresh that fails or
+does not hit the cache drops the rest of the queue, and the chip's tooltip says why. After a
+restart of the app the chip shows the time but takes no click until the next request, because a
+refresh repeats the last request and that is kept in memory only. Refreshes are billed and listed
+as keep-alives; unlike the automatic ones they have no cost cap other than the queue's length.
+
 ## API keys
 
 | Name | Used for |

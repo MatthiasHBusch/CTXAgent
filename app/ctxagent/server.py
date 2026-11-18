@@ -74,6 +74,11 @@ class QueueMessage(BaseModel):
     scratchpad: bool = False
 
 
+class CacheRefresh(BaseModel):
+    #: Refreshes to add to the queue; negative takes queued ones back.
+    delta: int = Field(default=1, ge=-100, le=100)
+
+
 class ScratchpadSave(BaseModel):
     text: str = Field(max_length=200_000)
     base_version: int = Field(ge=0)
@@ -173,6 +178,7 @@ async def read_chat(cid: str) -> dict:
         "running": bool(s and s.turn_lock.locked()) or delegation.active_chat(cid),
         "delegated": bool(delegation.for_chat(cid)),
         "queued": list(s.queue) if s else [],
+        "cache": s.cache_clock() if s else None,
     }
 
 
@@ -308,6 +314,29 @@ async def unqueue_message(cid: str, qid: str) -> dict:
     if not s.unqueue(qid):
         raise HTTPException(404, "Already delivered or not queued")
     return {"queue": list(s.queue)}
+
+
+@app.get("/api/chats/{cid}/cache")
+async def cache_clock(cid: str) -> dict:
+    """The cache timer beside the send button (AgentSession.cache_clock), with the usage: a
+    refresh sent since the last look was billed."""
+    s = agent.get_session(cid)
+    if not s:
+        raise HTTPException(404, "no such chat")
+    return {**s.cache_clock(), "usage": s.usage}
+
+
+@app.post("/api/chats/{cid}/cache/refresh")
+async def queue_cache_refresh(cid: str, body: CacheRefresh) -> dict:
+    """A click on the cache timer: one more refresh, which keeps the cache 4.5 minutes longer."""
+    _ordinary_chat(cid)
+    s = agent.get_session(cid)
+    if not s:
+        raise HTTPException(404, "no such chat")
+    try:
+        return s.queue_refresh(body.delta)
+    except ValueError as exc:
+        raise HTTPException(409, str(exc))
 
 
 @app.get("/api/chats/{cid}/canvas")

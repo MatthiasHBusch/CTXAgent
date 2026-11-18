@@ -425,6 +425,8 @@ details.disclosure > summary:hover { color: var(--fg); }
 .msg.assistant .bubble { font-family: var(--font-reading); font-size: var(--fs-reading); line-height: var(--lh-reading); padding-left: 28px; }
 .msg.assistant .bubble > :first-child { margin-top: 0; }
 .msg.assistant .bubble > :last-child { margin-bottom: 0; }
+.msg.assistant.plan > .role { color: var(--info); }
+.msg.assistant.plan .bubble { border-left: 2px solid var(--info); padding-left: 26px; }
 .msg.summary .role { color: var(--info); }
 .msg.summary .bubble {
   padding: 12px 14px; font-size: var(--fs-sm); color: var(--fg-muted);
@@ -625,6 +627,11 @@ details.disclosure > summary:hover { color: var(--fg); }
 .send:hover:not(:disabled) { background: var(--accent-hover); }
 .send:disabled { background: var(--bg-active); color: var(--fg-subtle); }
 .send.stop { background: var(--danger); color: var(--danger-fg); }
+/* Cache timer: time until the provider's prompt cache expires; a click queues a refresh */
+.cache-timer { font-variant-numeric: tabular-nums; cursor: pointer; }
+.cache-timer[hidden] { display: none; }
+.cache-timer.expired, .cache-timer:disabled { opacity: .6; }
+.cache-timer:disabled { cursor: default; }
 .wd-btn { max-width: 320px; min-width: 0; font-family: var(--font-mono); font-size: var(--fs-2xs); }
 .wd-btn #wdhint { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .wd-btn.unset { color: var(--warn); border-color: color-mix(in srgb, var(--warn) 55%, var(--border)); background: color-mix(in srgb, var(--warn) 8%, var(--panel)); }

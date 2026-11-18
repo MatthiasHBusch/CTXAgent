@@ -54,6 +54,63 @@ def atomic_bytes(path: Path, raw: bytes, *, expected_sha256: str | None = None) 
         Path(name).unlink(missing_ok=True)
 
 
+def replace_lines(text: str, edits: list[dict], where: str = 'the file') -> str:
+    """Replace line ranges of `text`. Each edit: start_line and end_line (1-based, inclusive,
+    numbered as read_file and smart_search print them), start_text and end_text (the exact
+    text of those two lines, not blank), new_text (the replacement; '' deletes the range).
+
+    The two texts are the safety check: a line number alone hits the wrong lines as soon
+    as the file has changed. All numbers refer to `text` as given, so several ranges of one
+    file do not shift each other; they are applied from the bottom up and must not overlap.
+    """
+    lines = text.splitlines(keepends=True)
+    newline = '\r\n' if '\r\n' in text and '\n' not in text.replace('\r\n', '') else '\n'
+    bare = [line.rstrip('\r\n') for line in lines]
+
+    def check(edit: dict, key: str, number: int) -> None:
+        given = edit.get(key)
+        if not isinstance(given, str) or not given.strip():
+            raise ValueError(f'{key} must be the exact text of line {number} and not blank; '
+                             'start and end a range at lines that have text')
+        given = given.rstrip('\r\n')
+        if bare[number - 1] == given:
+            return
+        elsewhere = [i + 1 for i, line in enumerate(bare) if line == given]
+        hint = (f' That text is line {elsewhere[0]}.' if len(elsewhere) == 1 else
+                f' That text is on lines {", ".join(map(str, elsewhere[:8]))}.' if elsewhere else
+                ' That text is not a whole line of the file (indentation counts).')
+        raise ValueError(f'{key} does not match line {number} of {where}. Line {number} is: '
+                         f'{bare[number - 1]!r}.{hint} Nothing was changed.')
+
+    ranges = []
+    for edit in edits:
+        try:
+            start, end = int(edit.get('start_line')), int(edit.get('end_line'))
+        except (TypeError, ValueError):
+            raise ValueError('start_line and end_line must be line numbers') from None
+        if not 1 <= start <= end <= len(lines):
+            raise ValueError(f'Lines {start}-{end} are not a range of {where}, which has {len(lines)} lines')
+        check(edit, 'start_text', start)
+        check(edit, 'end_text', end)
+        new_text = edit.get('new_text')
+        if not isinstance(new_text, str):
+            raise ValueError("new_text must be a string ('' deletes the lines)")
+        ranges.append((start, end, new_text))
+    ranges.sort()
+    for (_, end, _), (start, _, _) in zip(ranges, ranges[1:]):
+        if start <= end:
+            raise ValueError(f'Line ranges overlap at line {start} of {where}')
+    for start, end, new_text in reversed(ranges):
+        body = new_text.replace('\r\n', '\n')
+        if body.endswith('\n'):
+            body = body[:-1]
+        new_lines = [part + newline for part in body.split('\n')] if new_text else []
+        if new_lines and not lines[end - 1].endswith(('\n', '\r')):
+            new_lines[-1] = new_lines[-1][:-len(newline)]      # the file's last line had no line end
+        lines[start - 1:end] = new_lines
+    return ''.join(lines)
+
+
 def prepare(sb, owner: str, changes: list[dict], *, verbatim: bool = False) -> dict:
     if not 1 <= len(changes) <= 30:
         raise ValueError('Provide 1..30 file changes')
@@ -78,8 +135,15 @@ def prepare(sb, owner: str, changes: list[dict], *, verbatim: bool = False) -> d
         edits = change.get('edits') or []
         if not 1 <= len(edits) <= 100:
             raise ValueError('Each file needs 1..100 edits')
-        after = text
+        # Line-range edits first: their numbers refer to the file as it is on disk.
+        by_line = [edit for edit in edits if 'start_line' in edit or 'end_line' in edit]
+        after = replace_lines(text, by_line, str(p)) if by_line else text
         for edit in edits:
+            if edit in by_line:
+                continue
+            if 'old_string' not in edit or 'new_string' not in edit:
+                raise ValueError('Each edit needs old_string and new_string, or start_line, end_line, '
+                                 'start_text, end_text and new_text')
             old, new = edit['old_string'], edit['new_string']
             if not old:
                 raise ValueError('old_string must not be empty')

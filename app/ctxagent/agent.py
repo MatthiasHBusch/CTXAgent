@@ -41,6 +41,10 @@ KEEPALIVE_MAX_DEFAULT = 10
 KEEPALIVE_MISS_SHARE = 0.2
 #: Misses after which a chat sends no more keep-alives.
 KEEPALIVE_MAX_MISSES = 2
+#: Lifetime of a cache entry after the request that wrote or last read it (5-minute TTL).
+CACHE_TTL_S = 300
+#: Refreshes the user can queue with the cache timer: about an hour.
+REFRESH_QUEUE_MAX = 13
 
 BASE_SYSTEM = """\
 You are CTXAgent, working on the user's machine with the tools provided.
@@ -48,9 +52,12 @@ The working directories for this chat are listed in the Session section at the e
 
 How things work
 - Shell tools run with the user's privileges; a working directory is not a sandbox. Absolute paths are safest.
-- run_command returns its output in the same step and suits anything up to about a minute. start_job runs detached, for builds, simulations and servers; jobs survive chat Stop until cancel_job.
+- run_command returns its output in the same step and suits anything up to about a minute. run_script takes a script's source as text, writes it to a file and runs it; several in one response run at the same time. start_job runs detached, for builds, simulations and servers; jobs survive chat Stop until cancel_job.
 - Every model round trip re-reads the whole context. Calls in one response run in order, so independent calls, or an edit and the command that checks it, can share a response; only a call whose arguments depend on a result not yet seen has to wait.
 - read_file suits a file that fits one call. summarize_file, focus_file and summarize_folder show the structure, or one part, of large or unfamiliar files. Output bounded at the source (ranges, selectors, short logs) keeps the context small.
+- smart_search hands the search that opens a task to a small model: it walks the folders, reads the files it picks and returns the relevant line ranges with their locations, in one call. It prints the file's own lines with their numbers, so edit_file, edit_lines and prepare_edit_plan can work from its result without another read.
+- plan shows the user a plan in the chat and returns nothing.
+- The standard minimal workflow for a change takes three responses: (1) smart_search; (2) plan together with prepare_edit_plan, whose diff comes back; (3) apply_edit_plan together with the test, for example run_script.
 - view_image and render_pdf show visual output as pixels, which extracted text cannot.
 - document_open keeps a file you work on repeatedly as a live view outside history, refreshed before every request; older reads of it in history are then outdated. document_close removes the view and can leave a note. Operations for specific formats are listed in a catalog right before the live files and run through document_call(operation, arguments_json).
 - agent_start hands a large, independent task to a child agent. The child inherits the settings but not this conversation: it knows the task, the context and the segment_ids you pass. Children run in parallel with their own context and usage, and survive Stop until agent_cancel. read_only=true blocks writing; for edits, disjoint files or staged plans avoid collisions. A lost child may already have changed files.
@@ -83,6 +90,11 @@ words of it. Items behind the same breakpoint are re-sent together, so they are 
 replaced in one call.
 Closing a live document, a browser tab or the canvas changes the context too. In the
 same response as a curate or compact call, the cache is re-written once for all of it.
+The standard minimal workflow has two points where a context review makes sense. After
+the search: when it took more than one smart_search and left a lot in the context that
+the change does not need, a curate call prepares the context for the implementation
+responses. After the task is done: a compact call may pay off, depending on whether you
+expect the user to ask for changes to this work, which need its details, or to move on.
 """
 
 
@@ -199,6 +211,12 @@ class AgentSession:
             self.conv.repair_tool_pairs()
         self._sync_system()
         self._last_request: dict | None = None
+        # The newest request as llm.stream_chat captured it: what a keep-alive re-sends. It
+        # stays after the turn, for the refreshes the user queues with the cache timer.
+        self._warm: dict | None = None
+        self.refreshes = 0
+        self.refresh_note: str | None = None
+        self._refresher: asyncio.Task | None = None
         self._wire_engine()
 
     def _wire_engine(self) -> None:
@@ -426,7 +444,7 @@ class AgentSession:
         session and cleared by any successful mutating call."""
         failed = self.__dict__.setdefault('_failed_calls', {})
         if not result.error:
-            if result.mutates or name in ('run_command', 'start_job', 'apply_edit_plan') or name.startswith('document_'):
+            if result.mutates or name in ('run_command', 'run_script', 'start_job', 'apply_edit_plan') or name.startswith('document_'):
                 failed.clear()
             return
         raw = (tc.get('function') or {}).get('arguments') or ''
@@ -878,6 +896,8 @@ class AgentSession:
                 ):
                     if self.cancel.is_set():
                         break
+                    if capture.get('route') and self._warm is not capture:
+                        self._warm = capture      # sent: the cache timer counts from this request
                     t = ev["type"]
                     if t == "text":
                         text_buf.append(ev["text"])
@@ -890,7 +910,7 @@ class AgentSession:
                             diagnostic=cache_policy.public_diagnostic(diagnostic), routing=ev.get('routing'))
                         if self.usage.get('recent_requests'):
                             usage_record = self.usage['recent_requests'][-1]
-                        yield {"type": "usage", "usage": self.usage}
+                        yield {"type": "usage", "usage": self.usage, "cache": self.cache_clock()}
                     elif t in ("routing", "notice"):
                         yield ev
                     elif t == "reasoning_details":
@@ -1150,31 +1170,105 @@ class AgentSession:
             if self.cancel.is_set() or getattr(self, '_capture', None) is not captured \
                     or route in llm.KEEPALIVE_REFUSED:
                 return
-            t0, mono = time.time(), time.monotonic()
-            try:
-                sent = await llm.keep_warm(captured)
-            except asyncio.CancelledError:
-                raise
-            except Exception as e:  # a refused keep-alive must never break the tool batch
-                if isinstance(e, llm.KeepAliveRefused) or type(e).__name__ == 'BadRequestError':
-                    llm.KEEPALIVE_REFUSED.add(route)
-                insights.recorder(self).keepalive(entry=None, ms=int((time.monotonic() - mono) * 1000),
-                                                  error=f"{type(e).__name__}: {e}")
+            if await self._keepalive(captured):
                 return
-            last = t0
-            await self._account_usage(sent['usage'], model=self.cfg.model, provider=sent.get('provider'),
-                                      generation_id=sent.get('generation_id'), source='keepalive')
-            entry = next((r for r in reversed(self.usage.get('recent_requests', []))
-                          if r.get('source') == 'keepalive'), None)
-            n = (entry or {}).get('usage') or {}
-            missed = bool(n.get('prompt_tokens')) and (n.get('cache_write') or 0) > KEEPALIVE_MISS_SHARE * n['prompt_tokens']
-            insights.recorder(self).keepalive(
-                entry=entry, ms=int((time.monotonic() - mono) * 1000),
-                error=(f"cache not hit: wrote {n.get('cache_write')} of {n.get('prompt_tokens')} prompt tokens"
-                       if missed else None))
-            if missed:
-                self._keepalive_misses = getattr(self, '_keepalive_misses', 0) + 1
+            last = captured['refreshed']
+
+    async def _keepalive(self, captured: dict) -> str | None:
+        """One keep-alive for `captured`, accounted under 'keepalive'. Returns None when the
+        provider read the cache (`captured['refreshed']` is then the time it was sent), else
+        why not: the request failed or was refused, or it wrote a large part of its prompt."""
+        route = llm.keepalive_route(captured)
+        model = captured.get('model') or (captured.get('kwargs') or {}).get('model') or self.cfg.model
+        t0, mono = time.time(), time.monotonic()
+        try:
+            sent = await llm.keep_warm(captured)
+        except asyncio.CancelledError:
+            raise
+        except Exception as e:  # a refused keep-alive must never break the tool batch
+            if isinstance(e, llm.KeepAliveRefused) or type(e).__name__ == 'BadRequestError':
+                llm.KEEPALIVE_REFUSED.add(route)
+            error = f"{type(e).__name__}: {e}"
+            insights.recorder(self).keepalive(entry=None, ms=int((time.monotonic() - mono) * 1000), error=error)
+            return error
+        captured['refreshed'] = t0
+        await self._account_usage(sent['usage'], model=model, provider=sent.get('provider'),
+                                  generation_id=sent.get('generation_id'), source='keepalive')
+        entry = next((r for r in reversed(self.usage.get('recent_requests', []))
+                      if r.get('source') == 'keepalive'), None)
+        n = (entry or {}).get('usage') or {}
+        missed = bool(n.get('prompt_tokens')) and (n.get('cache_write') or 0) > KEEPALIVE_MISS_SHARE * n['prompt_tokens']
+        error = (f"cache not hit: wrote {n.get('cache_write')} of {n.get('prompt_tokens')} prompt tokens"
+                 if missed else None)
+        insights.recorder(self).keepalive(entry=entry, ms=int((time.monotonic() - mono) * 1000), error=error)
+        if missed:
+            self._keepalive_misses = getattr(self, '_keepalive_misses', 0) + 1
+        return error
+
+    # ---- cache timer (the chip beside the send button) -----------------------------------
+
+    def cache_clock(self) -> dict:
+        """What the cache timer shows: when the newest request, or the keep-alive after it,
+        reached the provider (`warm_at`), how long its cache entries live from then (`ttl`),
+        how many refreshes are queued and how much later each one moves the end (`step`: a
+        refresh is sent that long after the request before it, 30 s before the cache would
+        expire). `warm_at` None: no timer, because there was no request yet or the model's
+        cache has no fixed lifetime."""
+        warm = self._warm or {}
+        at = warm.get('refreshed') or warm.get('started')
+        why = None
+        if at:
+            if llm.keepalive_route(warm) in llm.KEEPALIVE_REFUSED:
+                why = 'The provider refused a keep-alive for this model.'
+        elif cache_policy.cache_family(self.cfg.model) == 'anthropic':
+            # After a restart the time is known, the request to repeat is not.
+            at = (self.conv.cache_state or {}).get('sent_at')
+            why = 'A refresh repeats the last request, and there has been none since the app started.'
+        return {'warm_at': at, 'ttl': CACHE_TTL_S, 'step': KEEPALIVE_S, 'max': REFRESH_QUEUE_MAX,
+                'queued': self.refreshes if at else 0, 'refreshable': bool(at) and why is None,
+                'why_not': why if at else None, 'note': self.refresh_note, 'now': time.time()}
+
+    def queue_refresh(self, delta: int = 1) -> dict:
+        """Queue `delta` more cache refreshes (negative: take queued ones back). Each keeps the
+        cache KEEPALIVE_S longer. Raises ValueError when there is nothing to refresh."""
+        clock = self.cache_clock()
+        if delta > 0:
+            if not clock['warm_at']:
+                raise ValueError('No request whose cache could be refreshed')
+            if not clock['refreshable']:
+                raise ValueError(clock['why_not'])
+            if clock['warm_at'] + CACHE_TTL_S <= time.time():
+                raise ValueError('The cache has expired; the next request writes it again')
+        self.refreshes = max(0, min(REFRESH_QUEUE_MAX, self.refreshes + delta))
+        self.refresh_note = None
+        if self.refreshes and (self._refresher is None or self._refresher.done()):
+            self._refresher = asyncio.create_task(self._refresh_cache())
+        return self.cache_clock()
+
+    async def _refresh_cache(self) -> None:
+        """Send the queued refreshes, each KEEPALIVE_S after the request or keep-alive before
+        it. A request of a running turn restarts the wait, so the queue is only used while the
+        cache would otherwise expire. A refresh that fails or misses the cache drops the rest."""
+        while self.refreshes > 0:
+            warm = self._warm or {}
+            at = warm.get('refreshed') or warm.get('started')
+            if not at:
+                self.refreshes = 0
                 return
+            await asyncio.sleep(max(0.0, at + KEEPALIVE_S - time.time()))
+            if self.refreshes <= 0:
+                return
+            if self._warm is not warm or (warm.get('refreshed') or warm.get('started')) != at:
+                continue                     # a newer request or a keep-alive restarted the timer
+            keeper = getattr(self, '_keeper', None)
+            if keeper is not None and not keeper.done():
+                await asyncio.sleep(1.0)     # the running tool batch sends this one itself
+                continue
+            problem = await self._keepalive(warm)
+            if problem:
+                self.refreshes, self.refresh_note = 0, problem
+                return
+            self.refreshes = max(0, self.refreshes - 1)
 
     async def _account_usage(self, raw: dict, *, model: str, provider: str | None = None,
                              generation_id: str | None = None, source: str = 'agent',
@@ -1233,4 +1327,6 @@ def get_session(chat_id: str) -> AgentSession | None:
 
 
 def drop_session(chat_id: str) -> None:
-    _SESSIONS.pop(chat_id, None)
+    s = _SESSIONS.pop(chat_id, None)
+    if s is not None and s._refresher is not None:
+        s._refresher.cancel()         # no queued cache refresh for a chat that is gone

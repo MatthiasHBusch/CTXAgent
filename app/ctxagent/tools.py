@@ -220,6 +220,35 @@ async def t_edit_file(
     )
 
 
+async def t_edit_lines(
+    sb: Sandbox, path: str, start_line: int, end_line: int, start_text: str, end_text: str,
+    new_text: str = ""
+) -> ToolResult:
+    from . import edit_plans
+
+    p = sb.resolve(path, must_exist=True)
+    raw = p.read_bytes()
+    bom = raw.startswith(b"\xef\xbb\xbf")
+    try:
+        text = raw.decode("utf-8-sig" if bom else "utf-8", errors="strict")
+    except UnicodeDecodeError as e:
+        raise ToolError(f"{p} is not valid UTF-8 ({e}); edit it another way.")
+    edit = {"start_line": start_line, "end_line": end_line, "start_text": start_text,
+            "end_text": end_text, "new_text": new_text}
+    try:
+        new = edit_plans.replace_lines(text, [edit], str(p))
+    except ValueError as e:
+        raise ToolError(str(e))
+    with open(p, "wb") as fh:
+        fh.write(new.encode("utf-8-sig" if bom else "utf-8"))
+    added = len(new.splitlines()) - len(text.splitlines()) + (int(end_line) - int(start_line) + 1)
+    return ToolResult(
+        text=f"Edited {p}: lines {int(start_line)}-{int(end_line)} replaced by {added} line(s).",
+        resource_key=sb.key(p),
+        mutates=True,
+    )
+
+
 async def t_list_dir(sb: Sandbox, path: str = ".") -> ToolResult:
     p = sb.resolve(path, must_exist=True)
     if not p.is_dir():
@@ -403,7 +432,20 @@ class _Drain:
 
     def text(self) -> str:
         self.keep = False  # anything read later is discarded
-        return b"".join(self.chunks).decode("utf-8", errors="replace")
+        data = b"".join(self.chunks)
+        try:
+            return data.decode("utf-8")
+        except UnicodeDecodeError:
+            pass
+        if os.name == "nt":
+            # PowerShell and cmd write to a pipe in the console's OEM code page (850 on a
+            # German Windows): umlauts in their output and messages are not UTF-8.
+            try:
+                import ctypes
+                return data.decode(f"cp{ctypes.windll.kernel32.GetOEMCP()}", errors="replace")
+            except (OSError, LookupError, AttributeError):
+                pass
+        return data.decode("utf-8", errors="replace")
 
 
 def _kill_tree(proc) -> None:
@@ -492,6 +534,17 @@ async def t_run_command(
     else:
         args = ["/bin/bash", "-lc", command]
 
+    # Arguments already contain the exact command. Do not echo a multi-kB
+    # inline script into context a second time merely to label its output.
+    preview = command if len(command) <= 240 else command[:180] + '\n[command preview shortened; full command is in the tool call]'
+    return await _run_reported(args, wd, timeout, timeout_note, preview,
+                               f"cmd:{_norm(wd)}:{command.strip()[:120]}")
+
+
+async def _run_reported(args: list[str], wd: Path, timeout: int, timeout_note: str, preview: str,
+                        resource_key: str) -> ToolResult:
+    """Run a process (run_command, run_script) and report exit code and output."""
+    import threading
     stop = threading.Event()
     fut = asyncio.get_running_loop().run_in_executor(None, _run_shell, args, str(wd), timeout, stop)
     cancel = RUN_CANCEL.get()  # the chat's Stop event, set by the tool batch
@@ -510,9 +563,6 @@ async def t_run_command(
         if watcher is not None:
             watcher.cancel()
     rc, so, se = r["rc"], r["stdout"], r["stderr"]
-    # Arguments already contain the exact command. Do not echo a multi-kB
-    # inline script into context a second time merely to label its output.
-    preview = command if len(command) <= 240 else command[:180] + '\n[command preview shortened; full command is in the tool call]'
     parts = []
     if r["reason"] == "timeout":
         parts.append(f"Error: Command timed out after {timeout}s and was stopped (its process tree was killed). "
@@ -538,7 +588,7 @@ async def t_run_command(
         text="\n".join(parts)[:MAX_TOOL_CHARS],
         # A shell command can change anything; key it to the cwd and the command,
         # but do not claim it changed a particular resource.
-        resource_key=f"cmd:{_norm(wd)}:{command.strip()[:120]}",
+        resource_key=resource_key,
         mutates=False,
         error=rc != 0 or bool(r["reason"]),
         meta={"exit": rc, "timed_out": r["reason"] == "timeout"},
@@ -724,6 +774,114 @@ async def t_summarize_folder(
     )
 
 
+#: run_script: language -> (file suffix, encoding, candidate interpreters, arguments before the file).
+SCRIPT_LANGUAGES = {
+    "python": (".py", "utf-8", ("python", "python3", "py"), []),
+    # Windows PowerShell 5.1 reads a script without a BOM in the ANSI code page.
+    "powershell": (".ps1", "utf-8-sig", ("pwsh", "powershell"),
+                   ["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File"]),
+    "bash": (".sh", "utf-8", ("bash",), []),
+    "node": (".js", "utf-8", ("node",), []),
+}
+_SCRIPT_KEEP = 200       # newest script files kept in the scripts folder
+
+
+def script_dir() -> Path:
+    import tempfile
+    d = Path(tempfile.gettempdir()) / "ctxagent-scripts"
+    d.mkdir(parents=True, exist_ok=True)
+    return d
+
+
+def _prune_scripts(folder: Path) -> None:
+    try:
+        files = sorted((f for f in folder.iterdir() if f.is_file()), key=lambda f: f.stat().st_mtime)
+        for old in files[:-_SCRIPT_KEEP]:
+            old.unlink(missing_ok=True)
+    except OSError:
+        pass
+
+
+async def t_run_script(
+    sb: Sandbox, script: str, language: str = "python", args=None, cwd: str = ".",
+    timeout: int = RUN_COMMAND_DEFAULT_TIMEOUT, interpreter: str = ""
+) -> ToolResult:
+    import uuid
+    if not isinstance(script, str) or not script.strip():
+        raise ToolError("script must be the non-empty source text.")
+    language = (language or "python").strip().lower()
+    if language not in SCRIPT_LANGUAGES:
+        raise ToolError(f"language must be one of {', '.join(SCRIPT_LANGUAGES)}; got {language!r}.")
+    suffix, encoding, candidates, before = SCRIPT_LANGUAGES[language]
+    wd = sb.resolve(cwd, must_exist=True)
+    if not wd.is_dir():
+        wd = wd.parent
+    if args is None:
+        args = []
+    if isinstance(args, str) or not isinstance(args, (list, tuple)):
+        raise ToolError("args must be a list of strings.")
+    exe = (interpreter or "").strip()
+    if exe:
+        found = shutil.which(exe) or (exe if Path(exe).is_file() else None)
+        if not found:
+            raise ToolError(f"interpreter {exe!r} was not found.")
+        exe = found
+    else:
+        exe = next((path for path in map(shutil.which, candidates) if path), None)
+        if not exe and language == "python" and not getattr(sys, "frozen", False):
+            exe = sys.executable
+        if not exe:
+            raise ToolError(f"No {language} interpreter found on PATH ({', '.join(candidates)}); "
+                            "pass interpreter with its path.")
+    timeout, timeout_note = command_timeout(timeout)
+    folder = script_dir()
+    path = folder / f"script_{uuid.uuid4().hex[:10]}{suffix}"
+    # newline="" keeps the text as given; a shell script must not get CRLF line ends.
+    with open(path, "w", encoding=encoding, newline="") as fh:
+        fh.write(script if language == "powershell" else script.replace("\r\n", "\n"))
+    _prune_scripts(folder)
+    command = [exe, *before, str(path), *[str(a) for a in args]]
+    preview = " ".join([Path(exe).name, *before[-1:], str(path), *[str(a) for a in args]])
+    return await _run_reported(command, wd, timeout, timeout_note, preview,
+                               f"script:{_norm(wd)}:{path.name}")
+
+
+async def t_plan(sb: Sandbox, plan: str = "") -> ToolResult:
+    """The chat shows the plan from the call's arguments; the result is empty."""
+    if not isinstance(plan, str) or not plan.strip():
+        raise ToolError("plan must be the non-empty plan text.")
+    return ToolResult(text="")
+
+
+async def t_smart_search(
+    sb: Sandbox, goal: str, instructions: str = "", path: str = ".", max_tokens: int = 0, ctx=None
+) -> ToolResult:
+    from . import config, smart_search
+
+    if not str(goal or "").strip():
+        raise ToolError("goal must say what to find.")
+    p = sb.resolve(path, must_exist=True)
+    if not p.is_dir():
+        raise ToolError(f"{p} is not a directory; smart_search starts at a folder.")
+    if ctx is None or not ctx.get("complete_fn"):
+        raise ToolError("smart_search needs a model and is unavailable in this context.")
+    session = ctx.get("session")
+    model = ctx.get("search_model") or smart_search.default_model(getattr(getattr(session, "cfg", None), "model", ""))
+    problem = config.key_problem(model)
+    if problem:
+        raise ToolError(f"smart_search uses {model}: {problem}")
+    limit = int(max_tokens) if max_tokens else smart_search.DEFAULT_OUTPUT_TOKENS
+    limit = max(1_000, min(limit, 60_000))
+    report = await smart_search.search(p, goal, instructions, ctx["complete_fn"], model)
+    text = smart_search.render(report, p, goal, model, limit)
+    return ToolResult(
+        text=text[:MAX_TOOL_CHARS],
+        meta={"model": model, "folders": len(report.folders_surveyed), "files": len(report.files),
+              "ranges": sum(len(h.ranges) for h in report.files), "calls": report.calls,
+              "errors": len(report.errors)},
+    )
+
+
 # ---------------------------------------------------------------------------
 # Registry
 # ---------------------------------------------------------------------------
@@ -799,6 +957,26 @@ _reg(ToolSpec(
 ))
 
 _reg(ToolSpec(
+    "edit_lines",
+    "Replace lines start_line to end_line of a file by new_text. start_text and end_text are the "
+    "exact text of the first and the last line of that range, without the line number; the edit "
+    "is refused when they do not match, so a line number that has shifted cannot hit other "
+    "lines. A range starts and ends at lines that have text. new_text '' deletes the range; to "
+    "insert, replace a line by itself plus the new lines. Line numbers are those read_file and "
+    "smart_search print. An edit shifts the numbers below it: for several ranges of one file, "
+    "prepare_edit_plan takes them all with the numbers of the file as it is.",
+    _p({
+        "path": {"type": "string"},
+        "start_line": {"type": "integer", "minimum": 1},
+        "end_line": {"type": "integer", "minimum": 1},
+        "start_text": {"type": "string", "description": "Exact text of line start_line."},
+        "end_text": {"type": "string", "description": "Exact text of line end_line."},
+        "new_text": {"type": "string"},
+    }, ["path", "start_line", "end_line", "start_text", "end_text", "new_text"]),
+    t_edit_lines, "files", dangerous=True,
+))
+
+_reg(ToolSpec(
     "list_dir",
     "List the entries of a directory.",
     _p({"path": {"type": "string"}}, []),
@@ -844,6 +1022,36 @@ _reg(ToolSpec(
                     f"{RUN_COMMAND_DEFAULT_TIMEOUT}, max {RUN_COMMAND_MAX_TIMEOUT}."},
     }, ["command"]),
     t_run_command, "shell", dangerous=True,
+))
+
+_reg(ToolSpec(
+    "run_script",
+    "Write a script to a file and run it, in one call. The source is passed as text and never "
+    "goes through a shell, so quotes, backslashes, $ and newlines arrive unchanged; a script of "
+    "more than a line or two is safer here than inline in run_command. Consecutive run_script "
+    "calls in one response run at the same time (up to 4); steps that depend on each other "
+    "belong in one script. Returns exit code, stdout and stderr like run_command. The file "
+    "stays in a temp folder and its path is in the result.",
+    _p({
+        "script": {"type": "string", "description": "The source text."},
+        "language": {"type": "string", "enum": ["python", "powershell", "bash", "node"],
+                     "description": "Default python."},
+        "args": {"type": "array", "items": {"type": "string"}, "description": "Command-line arguments."},
+        "cwd": {"type": "string"},
+        "timeout": {"type": "integer", "description": f"Seconds. Default {RUN_COMMAND_DEFAULT_TIMEOUT}, "
+                    f"max {RUN_COMMAND_MAX_TIMEOUT}."},
+        "interpreter": {"type": "string", "description": "Interpreter to use instead of the one on PATH, "
+                        "for example a virtual environment's python."},
+    }, ["script"]),
+    t_run_script, "shell", dangerous=True,
+))
+
+_reg(ToolSpec(
+    "plan",
+    "Show the user your plan in the chat (Markdown). It returns nothing and does not wait for "
+    "an answer.",
+    _p({"plan": {"type": "string", "description": "The plan, as the user reads it."}}, ["plan"]),
+    t_plan, "general",
 ))
 
 _reg(ToolSpec(
@@ -962,6 +1170,24 @@ _reg(ToolSpec(
     t_summarize_folder, "documents",
 ))
 
+_reg(ToolSpec(
+    "smart_search",
+    "Find the places in a folder tree that matter for a goal, in one call. A small model "
+    "(Claude Haiku 5.5 by default) walks the tree from `path` through the folders it judges "
+    "relevant, reads the files it picks and returns the relevant line ranges with their file "
+    "and line numbers. It suits the search that starts a task (where is X implemented, what "
+    "has to change for Y); for a known name or string grep_search is exact and free.",
+    _p({
+        "goal": {"type": "string", "description": "What to find and what it is for."},
+        "instructions": {"type": "string",
+                         "description": "Free text for the searcher: file or symbol names, folders to "
+                                        "prefer or skip, how much surrounding code you want."},
+        "path": {"type": "string", "description": "Folder to start at. Default: the working directory."},
+        "max_tokens": {"type": "integer", "description": "Cap on the returned lines. Default 12000."},
+    }, ["goal"]),
+    t_smart_search, "documents", needs_ctx=True,
+))
+
 
 async def t_context_report(sb: Sandbox, top: int = 5, recent: int = 20, ctx=None) -> ToolResult:
     from .context_report import report
@@ -982,9 +1208,9 @@ _reg(ToolSpec(
 
 
 DEFAULT_TOOLS = [
-    "read_file", "write_file", "edit_file", "list_dir",
-    "glob_search", "grep_search", "run_command", "recall", "pin",
-    "read_document", "summarize_file", "summarize_folder", "focus_file",
+    "read_file", "write_file", "edit_file", "edit_lines", "list_dir",
+    "glob_search", "grep_search", "run_command", "run_script", "plan", "recall", "pin",
+    "read_document", "summarize_file", "summarize_folder", "focus_file", "smart_search",
     "view_image", "render_pdf", "start_job", "job_status", "job_wait", "list_jobs",
     "read_job_log", "cancel_job", "context_report",
     "document_open", "document_close", "document_list",
